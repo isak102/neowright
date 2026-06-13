@@ -799,6 +799,146 @@ fn eval_exec_keys_and_wait_drive_real_session_when_nvim_exists() {
 }
 
 #[test]
+fn canonical_mvp_agent_debugging_loop_when_nvim_exists() {
+    if !nvim_is_available() {
+        return;
+    }
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let passthrough_marker = project.path().join("passthrough-marker");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args([
+            "open",
+            "--name",
+            "demo",
+            "--size",
+            "40x10",
+            "--",
+            "-u",
+            "NONE",
+            "--cmd",
+            &format!(
+                "call writefile(['passthrough-ok'], '{}')",
+                passthrough_marker.display()
+            ),
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Status"))
+        .stdout(predicate::str::contains("Session opened."))
+        .stdout(predicate::str::contains("Session Name: `demo`"))
+        .stdout(predicate::str::contains("Size: `40x10`"))
+        .stdout(predicate::str::contains("Artifact Directory:"));
+    assert_eq!(
+        std::fs::read_to_string(&passthrough_marker).expect("passthrough marker file"),
+        "passthrough-ok\n"
+    );
+
+    neowright()
+        .args(["keys", "--name", "demo", "ihello from keys<Esc>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Sent Keys"));
+
+    neowright()
+        .args(["exec", "--name", "demo", ":let g:neowright_exec = 'ok'"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Ran Command"));
+
+    neowright()
+        .args([
+            "eval",
+            "--name",
+            "demo",
+            "vim.g.neowright_eval = vim.g.neowright_exec .. '-lua'",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Result"));
+
+    neowright()
+        .args([
+            "wait",
+            "--name",
+            "demo",
+            "--timeout",
+            "2s",
+            "return vim.api.nvim_get_current_line() == 'hello from keys' and vim.g.neowright_eval == 'ok-lua'",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Result"));
+
+    neowright()
+        .args(["resize", "--name", "demo", "50x12"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Resized Session"))
+        .stdout(predicate::str::contains("Size: `50x12`"));
+    let records = registry_records(state.path());
+    assert_eq!(
+        records[0].pointer("/size/cols").and_then(Value::as_u64),
+        Some(50)
+    );
+    assert_eq!(
+        records[0].pointer("/size/rows").and_then(Value::as_u64),
+        Some(12)
+    );
+
+    neowright()
+        .args(["snapshot", "--name", "demo"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Snapshot"))
+        .stdout(predicate::str::contains("Artifact:"))
+        .stdout(predicate::str::contains("hello from keys").not());
+    let snapshot_dir = project.path().join(".neowright/snapshots");
+    let snapshots = snapshot_files(&snapshot_dir);
+    assert_eq!(snapshots.len(), 1);
+    let filename = snapshots[0]
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .expect("snapshot filename");
+    assert!(filename.starts_with("snapshot-"));
+    assert!(filename.ends_with(".txt"));
+    assert!(!snapshot_dir.join("snapshot-latest.txt").exists());
+    let contents = std::fs::read_to_string(&snapshots[0]).expect("snapshot contents");
+    assert!(contents.contains("hello from keys"));
+    assert!(!contents.contains('\u{1b}'));
+    assert_snapshot_dimensions(&contents, 50, 12);
+
+    neowright()
+        .args(["eval", "--name", "demo", "error('acceptance failure')"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("### Error"))
+        .stderr(predicate::str::contains("acceptance failure"));
+
+    neowright()
+        .args(["close", "--name", "demo", "--force"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Closed Sessions"));
+    assert_eq!(registry_records(state.path()), Vec::<Value>::new());
+}
+
+#[test]
 fn wait_timeout_reports_last_result_when_nvim_exists() {
     if !nvim_is_available() {
         return;
