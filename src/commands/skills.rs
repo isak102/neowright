@@ -15,7 +15,7 @@ pub fn run(args: SkillsArgs) -> Result<String, String> {
 }
 
 fn install(args: SkillsInstallArgs) -> Result<String, String> {
-    let (scope, target) = install_target(args.global)?;
+    let (scope, target) = install_target(args.local)?;
 
     if target.exists() {
         if !args.force {
@@ -65,16 +65,16 @@ fn install(args: SkillsInstallArgs) -> Result<String, String> {
     ))
 }
 
-fn install_target(global: bool) -> Result<(&'static str, PathBuf), String> {
-    let base = if global {
+fn install_target(local: bool) -> Result<(&'static str, PathBuf), String> {
+    let base = if local {
+        let cwd = env::current_dir()
+            .map_err(|error| format!("failed to resolve current directory: {error}"))?;
+        ("local", cwd)
+    } else {
         let home = env::var_os("HOME").ok_or_else(|| {
             "HOME must be set to install the Neowright Agent Skill globally".to_string()
         })?;
         ("global", PathBuf::from(home))
-    } else {
-        let cwd = env::current_dir()
-            .map_err(|error| format!("failed to resolve current directory: {error}"))?;
-        ("local", cwd)
     };
 
     Ok((

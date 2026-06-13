@@ -985,22 +985,28 @@ fn wait_timeout_reports_last_result_when_nvim_exists() {
 }
 
 #[test]
-fn skills_install_installs_local_skill_directory() {
+fn skills_install_defaults_to_global_skill_directory() {
+    let home = TempDir::new().expect("home dir");
     let project = TempDir::new().expect("project dir");
-    let skill_path = project.path().join(".agents/skills/neowright");
+    let skill_path = home.path().join(".agents/skills/neowright");
 
     neowright()
         .args(["skills", "install"])
         .current_dir(project.path())
+        .env("HOME", home.path())
         .assert()
         .success()
         .stdout(predicate::str::contains("### Status"))
         .stdout(predicate::str::contains("Installed Neowright Agent Skill."))
-        .stdout(predicate::str::contains("Scope: `local`"))
+        .stdout(predicate::str::contains("Scope: `global`"))
         .stdout(predicate::str::contains("Path: `"))
-        .stdout(predicate::str::contains(".agents/skills/neowright`"));
+        .stdout(predicate::str::contains(format!(
+            "Path: `{}`",
+            skill_path.display()
+        )));
 
     assert_neowright_skill_installed(&skill_path);
+    assert!(!project.path().join(".agents").exists());
 }
 
 #[test]
@@ -1027,15 +1033,37 @@ fn skills_install_global_uses_home_agents_directory() {
 }
 
 #[test]
-fn skills_install_does_not_overwrite_existing_skill() {
+fn skills_install_local_uses_project_agents_directory() {
+    let home = TempDir::new().expect("home dir");
     let project = TempDir::new().expect("project dir");
     let skill_path = project.path().join(".agents/skills/neowright");
+
+    neowright()
+        .args(["skills", "install", "--local"])
+        .current_dir(project.path())
+        .env("HOME", home.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Status"))
+        .stdout(predicate::str::contains("Scope: `local`"))
+        .stdout(predicate::str::contains(".agents/skills/neowright`"));
+
+    assert_neowright_skill_installed(&skill_path);
+    assert!(!home.path().join(".agents").exists());
+}
+
+#[test]
+fn skills_install_does_not_overwrite_existing_skill() {
+    let home = TempDir::new().expect("home dir");
+    let project = TempDir::new().expect("project dir");
+    let skill_path = home.path().join(".agents/skills/neowright");
     std::fs::create_dir_all(&skill_path).expect("existing skill dir");
     std::fs::write(skill_path.join("SKILL.md"), "custom skill").expect("custom skill");
 
     neowright()
         .args(["skills", "install"])
         .current_dir(project.path())
+        .env("HOME", home.path())
         .assert()
         .failure()
         .stderr(predicate::str::contains("### Error"))
@@ -1048,8 +1076,9 @@ fn skills_install_does_not_overwrite_existing_skill() {
 
 #[test]
 fn skills_install_force_overwrites_existing_skill() {
+    let home = TempDir::new().expect("home dir");
     let project = TempDir::new().expect("project dir");
-    let skill_path = project.path().join(".agents/skills/neowright");
+    let skill_path = home.path().join(".agents/skills/neowright");
     std::fs::create_dir_all(&skill_path).expect("existing skill dir");
     std::fs::write(skill_path.join("SKILL.md"), "custom skill").expect("custom skill");
     std::fs::write(skill_path.join("CUSTOM.md"), "custom file").expect("custom file");
@@ -1057,9 +1086,10 @@ fn skills_install_force_overwrites_existing_skill() {
     neowright()
         .args(["skills", "install", "--force"])
         .current_dir(project.path())
+        .env("HOME", home.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("Scope: `local`"));
+        .stdout(predicate::str::contains("Scope: `global`"));
 
     assert_neowright_skill_installed(&skill_path);
     assert!(!skill_path.join("CUSTOM.md").exists());

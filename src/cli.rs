@@ -160,8 +160,11 @@ pub enum SkillsCommand {
 
 #[derive(Debug, Args)]
 pub struct SkillsInstallArgs {
-    #[arg(long)]
+    #[arg(long, conflicts_with = "local")]
     pub global: bool,
+
+    #[arg(long)]
+    pub local: bool,
 
     #[arg(long)]
     pub force: bool,
