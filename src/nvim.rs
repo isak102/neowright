@@ -75,6 +75,10 @@ impl NvimClient {
         Ok(())
     }
 
+    pub fn notify_command(&mut self, command: &str) -> Result<(), String> {
+        self.notify("nvim_command", vec![Value::from(command.to_string())])
+    }
+
     pub fn feed_keys(&mut self, keys: &str) -> Result<(), String> {
         let replaced = self.request(
             "nvim_replace_termcodes",
@@ -131,6 +135,21 @@ impl NvimClient {
             }
             return Ok(items[3].clone());
         }
+    }
+
+    fn notify(&mut self, method: &str, args: Vec<Value>) -> Result<(), String> {
+        let notification = Value::Array(vec![
+            Value::from(2),
+            Value::from(method.to_string()),
+            Value::Array(args),
+        ]);
+
+        write_value(&mut self.stream, &notification).map_err(|error| {
+            format!("failed to send Neovim RPC notification `{method}`: {error}")
+        })?;
+        self.stream
+            .flush()
+            .map_err(|error| format!("failed to flush Neovim RPC notification `{method}`: {error}"))
     }
 }
 

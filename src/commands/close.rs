@@ -3,6 +3,8 @@ use crate::commands::CommandOutput;
 use crate::nvim::{NvimClient, NvimValue};
 use crate::session;
 
+const GRACEFUL_CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
 pub fn run(args: CloseArgs) -> Result<CommandOutput, String> {
     let records = if args.all {
         session::active_records()?
@@ -78,22 +80,12 @@ return modified
         }
     }
 
-    let command = if force { "qall!" } else { "confirm qall" };
-    if force {
-        let _ = client.command(command);
-    } else {
-        match client.command(command) {
-            Ok(()) => {}
-            Err(error) if is_expected_close_disconnect(&error) => {}
-            Err(error) => return Err(error),
-        }
-    }
+    let command = if force { "qall!" } else { "qall" };
+    client.notify_command(command)?;
+    let exited = session::wait_for_record_exit(record, GRACEFUL_CLOSE_TIMEOUT);
     session::remove_record(&record.id)?;
-    session::kill_record_processes(record);
+    if !exited {
+        session::kill_record_processes(record);
+    }
     Ok(())
-}
-
-fn is_expected_close_disconnect(error: &str) -> bool {
-    error.contains("failed to read Neovim RPC response for `nvim_command`")
-        && error.contains("failed to fill whole buffer")
 }

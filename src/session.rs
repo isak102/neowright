@@ -1,6 +1,8 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -212,6 +214,19 @@ pub fn kill_record_processes(record: &SessionRecord) {
         kill_pid(child_pid, libc::SIGKILL);
     }
     kill_pid(record.supervisor_pid, libc::SIGTERM);
+}
+
+pub fn wait_for_record_exit(record: &SessionRecord, timeout: Duration) -> bool {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        let supervisor_alive = process_is_alive(record.supervisor_pid);
+        let child_alive = record.child_pid.is_some_and(process_is_alive);
+        if !supervisor_alive && !child_alive {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    false
 }
 
 fn kill_pid(pid: u32, signal: libc::c_int) {
