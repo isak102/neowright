@@ -1,10 +1,20 @@
 use crate::cli::EvalArgs;
+use crate::commands::CommandOutput;
+use crate::nvim::NvimClient;
 use crate::session;
 
-pub fn run(args: EvalArgs) -> Result<String, String> {
-    if args.target.session.is_none() && args.target.name.is_none() {
-        let _ = session::resolve_target(&args.target)?;
+pub fn run(args: EvalArgs) -> Result<CommandOutput, String> {
+    let record = session::resolve_target(&args.target)?;
+    let mut client = NvimClient::connect(&record)?;
+    let result = client.eval_lua(&args.lua)?;
+
+    if args.raw {
+        return Ok(CommandOutput::Raw(format!("{}\n", result.format_raw())));
     }
 
-    Ok("`eval` parsed successfully. Lua evaluation is not implemented yet.".to_string())
+    Ok(CommandOutput::Markdown(format!(
+        "### Result\n```json\n{}\n```\n\n### Ran Lua\n```lua\n{}\n```\n",
+        result.format_pretty(),
+        args.lua
+    )))
 }

@@ -5,6 +5,7 @@ use clap::{CommandFactory, Parser};
 
 pub mod cli;
 mod commands;
+mod nvim;
 mod output;
 mod session;
 
@@ -34,8 +35,14 @@ pub fn run_with_io(
     };
 
     match commands::dispatch(cli.command) {
-        Ok(message) => {
+        Ok(commands::CommandOutput::Status(message)) => {
             let _ = output::write_success(stdout, &message);
+            0
+        }
+        Ok(
+            commands::CommandOutput::Markdown(markdown) | commands::CommandOutput::Raw(markdown),
+        ) => {
+            let _ = write!(stdout, "{markdown}");
             0
         }
         Err(error) => {

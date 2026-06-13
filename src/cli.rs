@@ -97,6 +97,9 @@ pub struct EvalArgs {
     #[command(flatten)]
     pub target: TargetSelector,
 
+    #[arg(long)]
+    pub raw: bool,
+
     pub lua: String,
 }
 
@@ -107,6 +110,10 @@ pub struct WaitArgs {
 
     #[arg(long, value_parser = parse_duration, default_value = "5s")]
     pub timeout: Duration,
+
+    #[arg(long, value_parser = parse_duration, default_value = "100ms")]
+    pub interval: Duration,
+
     pub condition: String,
 }
 

@@ -81,25 +81,19 @@ fn conflicting_targets_return_markdown_error() {
 
 #[test]
 fn required_commands_exist() {
-    let cases: &[&[&str]] = &[
-        &["list"],
-        &["close", "--session", "abc"],
-        &["keys", "--session", "abc", "<Esc>"],
-        &["exec", "--session", "abc", "write"],
-        &["eval", "--session", "abc", "return true"],
-        &["wait", "--session", "abc", "return true"],
-        &["snapshot", "--session", "abc"],
-        &["resize", "--session", "abc", "240x70"],
-        &["skills", "install"],
-    ];
-
-    for args in cases {
-        neowright()
-            .args(*args)
-            .assert()
-            .success()
-            .stdout(predicate::str::contains("### Status"));
-    }
+    neowright()
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("open"))
+        .stdout(predicate::str::contains("list"))
+        .stdout(predicate::str::contains("close"))
+        .stdout(predicate::str::contains("keys"))
+        .stdout(predicate::str::contains("exec"))
+        .stdout(predicate::str::contains("eval"))
+        .stdout(predicate::str::contains("wait"))
+        .stdout(predicate::str::contains("snapshot"))
+        .stdout(predicate::str::contains("resize"))
+        .stdout(predicate::str::contains("skills"));
 }
 
 #[test]
@@ -301,7 +295,41 @@ fn omitted_target_fails_when_multiple_sessions_are_active_and_nvim_exists() {
         .env("XDG_STATE_HOME", state.path())
         .assert()
         .failure()
-        .stderr(predicate::str::contains("multiple active Sessions"));
+        .stderr(predicate::str::contains("multiple active Sessions"))
+        .stderr(predicate::str::contains("Active Sessions:"))
+        .stderr(predicate::str::contains("Session Name: `one`"))
+        .stderr(predicate::str::contains("Session Name: `two`"));
+}
+
+#[test]
+fn list_cleans_stale_registry_entries() {
+    let state = TempDir::new().expect("state dir");
+    let registry_dir = state.path().join("neowright");
+    std::fs::create_dir_all(&registry_dir).expect("registry dir");
+    std::fs::write(
+        registry_dir.join("registry.json"),
+        r#"[
+          {
+            "id": "stale",
+            "name": "stale-name",
+            "cwd": "/tmp",
+            "artifact_dir": "/tmp/.neowright",
+            "size": { "cols": 80, "rows": 24 },
+            "supervisor_pid": 0,
+            "listen": "/tmp/neowright-stale.sock"
+          }
+        ]"#,
+    )
+    .expect("registry contents");
+
+    neowright()
+        .arg("list")
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No active Sessions."));
+
+    assert_eq!(registry_records(state.path()), Vec::<Value>::new());
 }
 
 #[test]
@@ -335,6 +363,209 @@ fn passthrough_args_are_forwarded_after_owned_listen_when_nvim_exists() {
         std::fs::read_to_string(marker).expect("passthrough marker file"),
         "ok\n"
     );
+}
+
+#[test]
+fn target_resolution_supports_session_id_and_name_when_nvim_exists() {
+    if !nvim_is_available() {
+        return;
+    }
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args(["open", "--name", "main", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    let records = registry_records(state.path());
+    let id = records[0].get("id").and_then(Value::as_str).expect("id");
+
+    neowright()
+        .args(["snapshot", "--session", id])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["snapshot", "--name", "main"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+}
+
+#[test]
+fn eval_exec_keys_and_wait_drive_real_session_when_nvim_exists() {
+    if !nvim_is_available() {
+        return;
+    }
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args(["open", "--name", "main", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["eval", "--name", "main", "return { answer = 42 }"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Result"))
+        .stdout(predicate::str::contains("\"answer\": 42"))
+        .stdout(predicate::str::contains("### Ran Lua"));
+
+    neowright()
+        .args(["eval", "--name", "main", "vim.g.neowright_side_effect = 42"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Result"));
+
+    neowright()
+        .args([
+            "eval",
+            "--name",
+            "main",
+            "--raw",
+            "return vim.g.neowright_side_effect",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match("^42\n$").unwrap());
+
+    neowright()
+        .args(["eval", "--name", "main", "--raw", "return 'hello'"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match("^hello\n$").unwrap());
+
+    neowright()
+        .args(["eval", "--name", "main", "--raw", "return { answer = 42 }"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match(r#"^\{"answer":42\}\n$"#).unwrap());
+
+    neowright()
+        .args(["eval", "--name", "main", "error('boom')"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("### Error"))
+        .stderr(predicate::str::contains("boom"));
+
+    neowright()
+        .args(["exec", "--name", "main", ":echo 'from exec'"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Output"))
+        .stdout(predicate::str::contains("from exec"))
+        .stdout(predicate::str::contains("### Ran Command"));
+
+    neowright()
+        .args(["exec", "--name", "main", "NoSuchCommand"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("### Error"))
+        .stderr(predicate::str::contains("NoSuchCommand"));
+
+    neowright()
+        .args(["keys", "--name", "main", "ihello<Esc>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Sent Keys"));
+
+    neowright()
+        .args(["keys", "--name", "main", "<C-w>v"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Sent Keys"));
+
+    neowright()
+        .args([
+            "eval",
+            "--name",
+            "main",
+            "--raw",
+            "return #vim.api.nvim_list_wins()",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match("^2\n$").unwrap());
+
+    assert!(!project.path().join(".neowright/snapshots").exists());
+
+    neowright()
+        .args([
+            "wait",
+            "--name",
+            "main",
+            "--timeout",
+            "2s",
+            "return vim.api.nvim_get_current_line() == 'hello'",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Result"));
+}
+
+#[test]
+fn wait_timeout_reports_last_result_when_nvim_exists() {
+    if !nvim_is_available() {
+        return;
+    }
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args(["open", "--name", "main", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args([
+            "wait",
+            "--name",
+            "main",
+            "--timeout",
+            "500ms",
+            "--interval",
+            "100ms",
+            "return false",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("### Error"))
+        .stderr(predicate::str::contains("### Last Result"));
 }
 
 fn registry_records(state_home: &std::path::Path) -> Vec<Value> {

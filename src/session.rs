@@ -164,8 +164,25 @@ pub fn resolve_target(selector: &TargetSelector) -> Result<SessionRecord, String
     match records.len() {
         0 => Err("no active Sessions; pass --session or --name after opening one".to_string()),
         1 => Ok(records.into_iter().next().expect("one record exists")),
-        _ => Err("multiple active Sessions; pass --session or --name".to_string()),
+        _ => Err(format!(
+            "multiple active Sessions; pass --session or --name\n\n{}",
+            active_session_list(&records)
+        )),
     }
+}
+
+fn active_session_list(records: &[SessionRecord]) -> String {
+    let mut output = String::from("Active Sessions:");
+    for record in records {
+        output.push_str(&format!(
+            "\n- Session ID: `{}`\n  Session Name: `{}`\n  Opened From: `{}`\n  Size: `{}`",
+            record.id,
+            record.name.as_deref().unwrap_or("(unnamed)"),
+            record.cwd.display(),
+            record.size
+        ));
+    }
+    output
 }
 
 pub fn process_is_alive(pid: u32) -> bool {
