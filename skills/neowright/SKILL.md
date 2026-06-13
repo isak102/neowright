@@ -70,6 +70,7 @@ neowright close --name debug
 - Use `-h` on any command or subcommand when you need exact arguments, for example `neowright eval -h`.
 - Read Neowright output as Agent-Readable Markdown; important values such as Session IDs, paths, and results are reported as structured Markdown fields.
 - Use Snapshot artifact paths from command output when referring to saved captures.
+- Snapshots are saved as project-local artifacts under `.neowright/`, which may appear as untracked files in the target project.
 - Prefer `wait` for state changes that may be asynchronous, such as plugin startup, diagnostics, completion, or UI redraws.
 - Close Sessions the agent opened when the task is finished.
 
@@ -83,11 +84,11 @@ neowright wait --name inspect "return vim.api.nvim_buf_get_name(0):match('file%.
 neowright snapshot --name inspect
 ```
 
-Trigger a mapping and inspect the result:
+Trigger a mapping that opens a split and inspect the result:
 
 ```bash
 neowright keys --name inspect "<leader>x"
-neowright wait --name inspect "return true"
+neowright wait --name inspect "return vim.fn.mode() == 'n' and #vim.api.nvim_list_wins() > 1"
 neowright snapshot --name inspect
 ```
 
