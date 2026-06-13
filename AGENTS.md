@@ -11,3 +11,7 @@ Use the default five-label triage vocabulary: `needs-triage`, `needs-info`, `rea
 ### Domain docs
 
 Use the single-context layout: root `CONTEXT.md` plus root `docs/adr/`. See `docs/agents/domain.md`.
+
+## Repository workflow
+
+After making Rust code changes, always run `cargo fmt` and `cargo test`; both must pass before considering the work complete.
