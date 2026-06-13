@@ -1,4 +1,5 @@
 use std::fmt;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -18,6 +19,8 @@ pub struct Cli {
 pub enum Command {
     Open(OpenArgs),
     List,
+    #[command(hide = true, name = "__session-supervisor")]
+    SessionSupervisor(SessionSupervisorArgs),
     Close(TargetArgs),
     Keys(KeysArgs),
     Exec(ExecArgs),
@@ -26,6 +29,33 @@ pub enum Command {
     Snapshot(TargetArgs),
     Resize(ResizeArgs),
     Skills(SkillsArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct SessionSupervisorArgs {
+    #[arg(long)]
+    pub session: String,
+
+    #[arg(long)]
+    pub name: Option<String>,
+
+    #[arg(long)]
+    pub cwd: PathBuf,
+
+    #[arg(long, value_parser = parse_size)]
+    pub size: Size,
+
+    #[arg(long)]
+    pub artifact_dir: PathBuf,
+
+    #[arg(long)]
+    pub listen: PathBuf,
+
+    #[arg(long)]
+    pub ready_file: PathBuf,
+
+    #[arg(last = true)]
+    pub neovim_args: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -108,10 +138,10 @@ pub struct SkillsInstallArgs {
 
 #[derive(Debug, Args)]
 pub struct TargetSelector {
-    #[arg(long, conflicts_with = "name", required_unless_present = "name")]
+    #[arg(long, conflicts_with = "name")]
     pub session: Option<String>,
 
-    #[arg(long, conflicts_with = "session", required_unless_present = "session")]
+    #[arg(long, conflicts_with = "session")]
     pub name: Option<String>,
 }
 
@@ -119,6 +149,12 @@ pub struct TargetSelector {
 pub struct Size {
     pub cols: u16,
     pub rows: u16,
+}
+
+impl Default for Size {
+    fn default() -> Self {
+        crate::session::DEFAULT_SIZE
+    }
 }
 
 impl FromStr for Size {

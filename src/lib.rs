@@ -6,6 +6,7 @@ use clap::{CommandFactory, Parser};
 pub mod cli;
 mod commands;
 mod output;
+mod session;
 
 pub fn run(args: impl IntoIterator<Item = OsString>) -> i32 {
     run_with_io(args, &mut io::stdout(), &mut io::stderr())

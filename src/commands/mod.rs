@@ -15,6 +15,7 @@ pub fn dispatch(command: Command) -> Result<String, String> {
     match command {
         Command::Open(args) => open::run(args),
         Command::List => list::run(),
+        Command::SessionSupervisor(args) => open::run_supervisor(args),
         Command::Close(args) => close::run(args),
         Command::Keys(args) => keys::run(args),
         Command::Exec(args) => exec::run(args),
