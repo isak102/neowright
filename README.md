@@ -6,6 +6,24 @@ It exists so coding agents can debug your actual Neovim configuration, reproduce
 
 This is mostly not a human-facing tool. Humans can run it, but the primary user is an agent that needs a reliable way to drive Neovim from the outside.
 
+## Installation
+
+### GitHub Releases
+
+This installs `neowright` to `$HOME/.local/bin` by default. Set `NEOWRIGHT_INSTALL_DIR` to choose a different directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/isak102/neowright/master/install.sh | sh
+```
+
+### Cargo
+
+Install the latest release from git with Cargo:
+
+```bash
+cargo install --git https://github.com/isak102/neowright --tag v0.1.0 neowright
+```
+
 ## Why
 
 Agents are good at reading files and running tests. They are much worse at understanding what happens inside an interactive Neovim UI: floating windows, completion menus, diagnostics, splits, keymaps, plugin startup, redraw timing, and configuration issues that only appear in a real TUI.
