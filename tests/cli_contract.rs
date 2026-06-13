@@ -692,8 +692,17 @@ fn eval_exec_keys_and_wait_drive_real_session_when_nvim_exists() {
         .assert()
         .success()
         .stdout(predicate::str::contains("### Result"))
-        .stdout(predicate::str::contains("\"answer\": 42"))
+        .stdout(predicate::str::contains("```text"))
+        .stdout(predicate::str::contains("answer = 42"))
         .stdout(predicate::str::contains("### Ran Lua"));
+
+    neowright()
+        .args(["eval", "--name", "main", "return 'hello\\nworld'"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("```text\nhello\nworld\n```"))
+        .stdout(predicate::str::contains(r#"\"hello\\nworld\""#).not());
 
     neowright()
         .args(["eval", "--name", "main", "vim.g.neowright_side_effect = 42"])

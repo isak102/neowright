@@ -180,9 +180,37 @@ impl NvimValue {
         !matches!(self, Self::Nil | Self::Bool(false))
     }
 
-    pub fn format_pretty(&self) -> String {
-        let json = self.to_json();
-        serde_json::to_string_pretty(&json).unwrap_or_else(|_| self.format_compact())
+    pub fn format_display(&self) -> String {
+        match self {
+            Self::Nil => "nil".to_string(),
+            Self::Bool(value) => value.to_string(),
+            Self::Integer(value) => value.to_string(),
+            Self::Float(value) => value.to_string(),
+            Self::String(value) => value.clone(),
+            Self::Array(values) => {
+                let values = values
+                    .iter()
+                    .map(Self::format_display_nested)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{{ {values} }}")
+            }
+            Self::Map(values) => {
+                let values = values
+                    .iter()
+                    .map(|(key, value)| format!("{key} = {}", value.format_display_nested()))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{{ {values} }}")
+            }
+        }
+    }
+
+    fn format_display_nested(&self) -> String {
+        match self {
+            Self::String(value) => format!("{:?}", value),
+            _ => self.format_display(),
+        }
     }
 
     pub fn format_raw(&self) -> String {

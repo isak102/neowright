@@ -14,16 +14,16 @@ pub fn run(args: WaitArgs) -> Result<CommandOutput, String> {
         let last_result = client.eval_lua(&args.condition)?;
         if last_result.is_truthy() {
             return Ok(CommandOutput::Markdown(format!(
-                "### Result\n```json\n{}\n```\n\n### Ran Lua\n```lua\n{}\n```\n",
-                last_result.format_pretty(),
+                "### Result\n```text\n{}\n```\n\n### Ran Lua\n```lua\n{}\n```\n",
+                last_result.format_display(),
                 args.condition
             )));
         }
 
         if start.elapsed() >= args.timeout {
             return Err(format!(
-                "timed out waiting for Lua condition\n\n### Last Result\n```json\n{}\n```\n\n### Ran Lua\n```lua\n{}\n```",
-                last_result.format_pretty(),
+                "timed out waiting for Lua condition\n\n### Last Result\n```text\n{}\n```\n\n### Ran Lua\n```lua\n{}\n```",
+                last_result.format_display(),
                 args.condition
             ));
         }

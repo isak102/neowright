@@ -13,8 +13,8 @@ pub fn run(args: EvalArgs) -> Result<CommandOutput, String> {
     }
 
     Ok(CommandOutput::Markdown(format!(
-        "### Result\n```json\n{}\n```\n\n### Ran Lua\n```lua\n{}\n```\n",
-        result.format_pretty(),
+        "### Result\n```text\n{}\n```\n\n### Ran Lua\n```lua\n{}\n```\n",
+        result.format_display(),
         args.lua
     )))
 }
