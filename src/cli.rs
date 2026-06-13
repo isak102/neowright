@@ -162,6 +162,9 @@ pub enum SkillsCommand {
 pub struct SkillsInstallArgs {
     #[arg(long)]
     pub global: bool,
+
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]

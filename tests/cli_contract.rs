@@ -835,6 +835,87 @@ fn wait_timeout_reports_last_result_when_nvim_exists() {
         .stderr(predicate::str::contains("### Last Result"));
 }
 
+#[test]
+fn skills_install_installs_local_skill_directory() {
+    let project = TempDir::new().expect("project dir");
+    let skill_path = project.path().join(".agents/skills/neowright");
+
+    neowright()
+        .args(["skills", "install"])
+        .current_dir(project.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Status"))
+        .stdout(predicate::str::contains("Installed Neowright Agent Skill."))
+        .stdout(predicate::str::contains("Scope: `local`"))
+        .stdout(predicate::str::contains("Path: `"))
+        .stdout(predicate::str::contains(".agents/skills/neowright`"));
+
+    assert_neowright_skill_installed(&skill_path);
+}
+
+#[test]
+fn skills_install_global_uses_home_agents_directory() {
+    let home = TempDir::new().expect("home dir");
+    let project = TempDir::new().expect("project dir");
+    let skill_path = home.path().join(".agents/skills/neowright");
+
+    neowright()
+        .args(["skills", "install", "--global"])
+        .current_dir(project.path())
+        .env("HOME", home.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Status"))
+        .stdout(predicate::str::contains("Scope: `global`"))
+        .stdout(predicate::str::contains(format!(
+            "Path: `{}`",
+            skill_path.display()
+        )));
+
+    assert_neowright_skill_installed(&skill_path);
+    assert!(!project.path().join(".agents").exists());
+}
+
+#[test]
+fn skills_install_does_not_overwrite_existing_skill() {
+    let project = TempDir::new().expect("project dir");
+    let skill_path = project.path().join(".agents/skills/neowright");
+    std::fs::create_dir_all(&skill_path).expect("existing skill dir");
+    std::fs::write(skill_path.join("SKILL.md"), "custom skill").expect("custom skill");
+
+    neowright()
+        .args(["skills", "install"])
+        .current_dir(project.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("### Error"))
+        .stderr(predicate::str::contains("already exists"))
+        .stderr(predicate::str::contains("--force"));
+
+    let contents = std::fs::read_to_string(skill_path.join("SKILL.md")).expect("skill contents");
+    assert_eq!(contents, "custom skill");
+}
+
+#[test]
+fn skills_install_force_overwrites_existing_skill() {
+    let project = TempDir::new().expect("project dir");
+    let skill_path = project.path().join(".agents/skills/neowright");
+    std::fs::create_dir_all(&skill_path).expect("existing skill dir");
+    std::fs::write(skill_path.join("SKILL.md"), "custom skill").expect("custom skill");
+    std::fs::write(skill_path.join("CUSTOM.md"), "custom file").expect("custom file");
+
+    neowright()
+        .args(["skills", "install", "--force"])
+        .current_dir(project.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scope: `local`"));
+
+    assert_neowright_skill_installed(&skill_path);
+    assert!(!skill_path.join("CUSTOM.md").exists());
+}
+
 fn registry_records(state_home: &std::path::Path) -> Vec<Value> {
     let registry = state_home.join("neowright/registry.json");
     if !registry.exists() {
@@ -875,6 +956,21 @@ fn neowright_socket_process_exists(listen: &str) -> bool {
     stdout
         .lines()
         .any(|line| line.contains("nvim --embed --listen") && line.contains(listen))
+}
+
+fn assert_neowright_skill_installed(skill_path: &std::path::Path) {
+    assert!(skill_path.is_dir(), "skill path should be a directory");
+    let contents = std::fs::read_to_string(skill_path.join("SKILL.md")).expect("skill contents");
+    assert!(contents.contains("name: neowright"));
+    assert!(contents.contains("standalone CLI harness"));
+    assert!(contents.contains("neowright open"));
+    assert!(contents.contains("neowright keys"));
+    assert!(contents.contains("neowright wait"));
+    assert!(contents.contains("neowright snapshot"));
+    assert!(contents.contains("neowright close"));
+    assert!(!contents.contains("-- --clean"));
+    assert!(!contents.contains("test fixtures"));
+    assert!(!contents.contains("force-close"));
 }
 
 fn wait_until(timeout: std::time::Duration, mut condition: impl FnMut() -> bool) {
