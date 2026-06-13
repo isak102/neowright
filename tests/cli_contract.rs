@@ -159,9 +159,275 @@ fn open_starts_session_and_list_shows_it_when_nvim_exists() {
         .env("XDG_STATE_HOME", state.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "Snapshot capture is not implemented yet.",
-        ));
+        .stdout(predicate::str::contains("### Snapshot"))
+        .stdout(predicate::str::contains("Size: `100x30`"));
+}
+
+#[test]
+fn snapshot_writes_timestamped_plain_text_artifact_when_nvim_exists() {
+    if !nvim_is_available() {
+        return;
+    }
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args([
+            "open", "--name", "main", "--size", "40x10", "--", "-u", "NONE",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["keys", "--name", "main", "ihello<Esc>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["snapshot", "--name", "main"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Snapshot"))
+        .stdout(predicate::str::contains("Artifact:"))
+        .stdout(predicate::str::contains("hello").not());
+
+    let snapshot_dir = project.path().join(".neowright/snapshots");
+    let snapshots = snapshot_files(&snapshot_dir);
+    assert_eq!(snapshots.len(), 1);
+    let filename = snapshots[0]
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .expect("snapshot filename");
+    assert!(filename.starts_with("snapshot-"));
+    assert!(filename.ends_with(".txt"));
+    assert!(!snapshot_dir.join("snapshot-latest.txt").exists());
+
+    let contents = std::fs::read_to_string(&snapshots[0]).expect("snapshot contents");
+    assert!(contents.contains("hello"));
+    assert!(!contents.contains('\u{1b}'));
+    assert_snapshot_dimensions(&contents, 40, 10);
+
+    neowright()
+        .args(["snapshot", "--name", "main", "--inline"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Contents"))
+        .stdout(predicate::str::contains("hello"));
+
+    assert_eq!(snapshot_files(&snapshot_dir).len(), 2);
+}
+
+#[test]
+fn resize_updates_metadata_and_snapshot_dimensions_when_nvim_exists() {
+    if !nvim_is_available() {
+        return;
+    }
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args([
+            "open", "--name", "main", "--size", "40x10", "--", "-u", "NONE",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["resize", "--name", "main", "50x12"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Resized Session"))
+        .stdout(predicate::str::contains("Size: `50x12`"));
+
+    neowright()
+        .arg("list")
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Size: `50x12`"));
+
+    let records = registry_records(state.path());
+    assert_eq!(
+        records[0].pointer("/size/cols").and_then(Value::as_u64),
+        Some(50)
+    );
+    assert_eq!(
+        records[0].pointer("/size/rows").and_then(Value::as_u64),
+        Some(12)
+    );
+
+    neowright()
+        .args(["snapshot", "--name", "main"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    let snapshots = snapshot_files(&project.path().join(".neowright/snapshots"));
+    let contents = std::fs::read_to_string(&snapshots[0]).expect("snapshot contents");
+    assert_snapshot_dimensions(&contents, 50, 12);
+}
+
+#[test]
+fn close_handles_graceful_force_all_and_partial_failures_when_nvim_exists() {
+    if !nvim_is_available() {
+        return;
+    }
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args(["open", "--name", "clean", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+    neowright()
+        .args(["close", "--name", "clean"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Closed Sessions"));
+    assert_eq!(registry_records(state.path()), Vec::<Value>::new());
+
+    neowright()
+        .args(["open", "--name", "dirty", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+    neowright()
+        .args(["keys", "--name", "dirty", "idirty<Esc>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    neowright()
+        .args(["close", "--name", "dirty"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unsaved changes"));
+    assert_eq!(registry_records(state.path()).len(), 1);
+    neowright()
+        .args(["close", "--name", "dirty", "--force"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    assert_eq!(registry_records(state.path()), Vec::<Value>::new());
+
+    neowright()
+        .args(["open", "--name", "one", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+    neowright()
+        .args(["open", "--name", "two", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+    neowright()
+        .args(["close", "--all"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    assert_eq!(registry_records(state.path()), Vec::<Value>::new());
+
+    neowright()
+        .args(["open", "--name", "clean-all", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+    neowright()
+        .args(["open", "--name", "dirty-all", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+    neowright()
+        .args(["keys", "--name", "dirty-all", "idirty<Esc>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    neowright()
+        .args(["close", "--all"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("clean-all"))
+        .stderr(predicate::str::contains("dirty-all"));
+    let records = registry_records(state.path());
+    assert_eq!(records.len(), 1);
+    assert_eq!(
+        records[0].get("name").and_then(Value::as_str),
+        Some("dirty-all")
+    );
+    neowright()
+        .args(["close", "--all", "--force"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    assert_eq!(registry_records(state.path()), Vec::<Value>::new());
+}
+
+#[test]
+fn supervisor_sigterm_terminates_child_nvim_when_nvim_exists() {
+    if !nvim_is_available() {
+        return;
+    }
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args(["open", "--name", "main", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    let records = registry_records(state.path());
+    let supervisor_pid = records[0]
+        .get("supervisor_pid")
+        .and_then(Value::as_u64)
+        .expect("supervisor pid");
+    let listen = records[0]
+        .get("listen")
+        .and_then(Value::as_str)
+        .expect("listen path");
+
+    assert!(neowright_socket_process_exists(listen));
+    unsafe {
+        libc::kill(supervisor_pid as libc::pid_t, libc::SIGTERM);
+    }
+
+    wait_until(std::time::Duration::from_secs(5), || {
+        !neowright_socket_process_exists(listen)
+    });
+    assert!(!neowright_socket_process_exists(listen));
 }
 
 #[test]
@@ -210,6 +476,7 @@ fn open_uses_default_size_and_writes_registry_when_nvim_exists() {
         record.pointer("/size/rows").and_then(Value::as_u64),
         Some(70)
     );
+    assert!(record.get("child_pid").and_then(Value::as_u64).is_some());
     assert_eq!(
         std::path::Path::new(
             record
@@ -570,12 +837,54 @@ fn wait_timeout_reports_last_result_when_nvim_exists() {
 
 fn registry_records(state_home: &std::path::Path) -> Vec<Value> {
     let registry = state_home.join("neowright/registry.json");
+    if !registry.exists() {
+        return Vec::new();
+    }
     let contents = std::fs::read_to_string(registry).expect("registry contents");
     let Value::Array(records) = serde_json::from_str::<Value>(&contents).expect("registry json")
     else {
         panic!("registry must be an array")
     };
     records
+}
+
+fn snapshot_files(snapshot_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut files = std::fs::read_dir(snapshot_dir)
+        .expect("snapshot dir")
+        .map(|entry| entry.expect("snapshot dir entry").path())
+        .filter(|path| path.extension().and_then(std::ffi::OsStr::to_str) == Some("txt"))
+        .collect::<Vec<_>>();
+    files.sort();
+    files
+}
+
+fn assert_snapshot_dimensions(contents: &str, cols: usize, rows: usize) {
+    let lines = contents.split('\n').collect::<Vec<_>>();
+    assert_eq!(lines.len(), rows);
+    for line in lines {
+        assert_eq!(line.chars().count(), cols, "snapshot line has wrong width");
+    }
+}
+
+fn neowright_socket_process_exists(listen: &str) -> bool {
+    let output = std::process::Command::new("ps")
+        .args(["-ax", "-o", "command="])
+        .output()
+        .expect("ps output");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout
+        .lines()
+        .any(|line| line.contains("nvim --embed --listen") && line.contains(listen))
+}
+
+fn wait_until(timeout: std::time::Duration, mut condition: impl FnMut() -> bool) {
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
+        if condition() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 }
 
 fn cleanup_supervisors(state_home: &std::path::Path) {
@@ -587,10 +896,20 @@ fn cleanup_supervisors(state_home: &std::path::Path) {
         return;
     };
 
-    for record in records {
+    for record in &records {
         if let Some(pid) = record.get("supervisor_pid").and_then(Value::as_u64) {
             unsafe {
                 libc::kill(pid as libc::pid_t, libc::SIGTERM);
+            }
+        }
+    }
+
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    for record in records {
+        if let Some(pid) = record.get("child_pid").and_then(Value::as_u64) {
+            unsafe {
+                libc::kill(pid as libc::pid_t, libc::SIGKILL);
             }
         }
     }

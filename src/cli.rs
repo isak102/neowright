@@ -21,12 +21,12 @@ pub enum Command {
     List,
     #[command(hide = true, name = "__session-supervisor")]
     SessionSupervisor(SessionSupervisorArgs),
-    Close(TargetArgs),
+    Close(CloseArgs),
     Keys(KeysArgs),
     Exec(ExecArgs),
     Eval(EvalArgs),
     Wait(WaitArgs),
-    Snapshot(TargetArgs),
+    Snapshot(SnapshotArgs),
     Resize(ResizeArgs),
     Skills(SkillsArgs),
 }
@@ -74,6 +74,27 @@ pub struct OpenArgs {
 pub struct TargetArgs {
     #[command(flatten)]
     pub target: TargetSelector,
+}
+
+#[derive(Debug, Args)]
+pub struct SnapshotArgs {
+    #[command(flatten)]
+    pub target: TargetSelector,
+
+    #[arg(long)]
+    pub inline: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct CloseArgs {
+    #[command(flatten)]
+    pub target: TargetSelector,
+
+    #[arg(long)]
+    pub force: bool,
+
+    #[arg(long, conflicts_with_all = ["session", "name"])]
+    pub all: bool,
 }
 
 #[derive(Debug, Args)]

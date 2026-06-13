@@ -20,6 +20,8 @@ pub struct SessionRecord {
     pub artifact_dir: PathBuf,
     pub size: SizeRecord,
     pub supervisor_pid: u32,
+    #[serde(default)]
+    pub child_pid: Option<u32>,
     pub listen: PathBuf,
 }
 
@@ -105,7 +107,7 @@ pub fn write_registry(records: &[SessionRecord]) -> Result<(), String> {
         })?;
     }
 
-    let tmp_path = path.with_extension("json.tmp");
+    let tmp_path = path.with_extension(format!("json.{}.tmp", generate_id()));
     let contents = serde_json::to_string_pretty(records)
         .map_err(|error| format!("failed to serialize Session Registry: {error}"))?;
     fs::write(&tmp_path, contents).map_err(|error| {
@@ -141,6 +143,18 @@ pub fn add_record(record: SessionRecord) -> Result<(), String> {
 pub fn remove_record(id: &str) -> Result<(), String> {
     let mut records = read_registry()?;
     records.retain(|record| record.id != id);
+    write_registry(&records)
+}
+
+pub fn update_record(updated: SessionRecord) -> Result<(), String> {
+    let mut records = active_records()?;
+    let Some(existing) = records.iter_mut().find(|record| record.id == updated.id) else {
+        return Err(format!(
+            "no active Session found with Session ID `{}`",
+            updated.id
+        ));
+    };
+    *existing = updated;
     write_registry(&records)
 }
 
@@ -191,6 +205,19 @@ pub fn process_is_alive(pid: u32) -> bool {
     }
 
     unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+}
+
+pub fn kill_record_processes(record: &SessionRecord) {
+    if let Some(child_pid) = record.child_pid {
+        kill_pid(child_pid, libc::SIGKILL);
+    }
+    kill_pid(record.supervisor_pid, libc::SIGTERM);
+}
+
+fn kill_pid(pid: u32, signal: libc::c_int) {
+    unsafe {
+        libc::kill(pid as libc::pid_t, signal);
+    }
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ use std::io::Read;
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -15,6 +16,7 @@ use crate::session::{
 };
 
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
+static SUPERVISOR_SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
 pub fn run(args: OpenArgs) -> Result<String, String> {
     let cwd = std::env::current_dir().map_err(|error| format!("failed to resolve cwd: {error}"))?;
@@ -97,6 +99,7 @@ pub fn run(args: OpenArgs) -> Result<String, String> {
 }
 
 pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
+    install_supervisor_signal_handlers();
     let _ = fs::remove_file(&args.listen);
     let _ = fs::remove_file(&args.ready_file);
 
@@ -142,6 +145,7 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
         artifact_dir: args.artifact_dir.clone(),
         size: SizeRecord::from(args.size),
         supervisor_pid: std::process::id(),
+        child_pid: child.process_id(),
         listen: args.listen.clone(),
     })?;
 
@@ -152,11 +156,50 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
         )
     })?;
 
-    let result = child.wait();
+    loop {
+        if SUPERVISOR_SHUTDOWN.load(Ordering::Relaxed) {
+            if let Some(child_pid) = child.process_id() {
+                unsafe {
+                    libc::kill(child_pid as libc::pid_t, libc::SIGKILL);
+                }
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            break;
+        }
+
+        if child
+            .try_wait()
+            .map_err(|error| format!("failed while polling nvim: {error}"))?
+            .is_some()
+        {
+            break;
+        }
+
+        thread::sleep(Duration::from_millis(50));
+    }
+
     let _ = session::remove_record(&args.session);
     let _ = fs::remove_file(&args.listen);
-    result.map_err(|error| format!("failed while waiting for nvim: {error}"))?;
     Ok("Session supervisor exited.".to_string())
+}
+
+fn install_supervisor_signal_handlers() {
+    SUPERVISOR_SHUTDOWN.store(false, Ordering::Relaxed);
+    unsafe {
+        libc::signal(
+            libc::SIGTERM,
+            handle_supervisor_signal as *const () as libc::sighandler_t,
+        );
+        libc::signal(
+            libc::SIGINT,
+            handle_supervisor_signal as *const () as libc::sighandler_t,
+        );
+    }
+}
+
+extern "C" fn handle_supervisor_signal(_: libc::c_int) {
+    SUPERVISOR_SHUTDOWN.store(true, Ordering::Relaxed);
 }
 
 fn wait_until_ready(

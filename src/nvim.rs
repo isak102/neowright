@@ -70,6 +70,11 @@ impl NvimClient {
         }
     }
 
+    pub fn command(&mut self, command: &str) -> Result<(), String> {
+        self.request("nvim_command", vec![Value::from(command.to_string())])?;
+        Ok(())
+    }
+
     pub fn feed_keys(&mut self, keys: &str) -> Result<(), String> {
         let replaced = self.request(
             "nvim_replace_termcodes",
