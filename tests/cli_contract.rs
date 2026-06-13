@@ -419,6 +419,43 @@ fn close_handles_graceful_force_all_and_partial_failures_when_nvim_exists() {
 }
 
 #[test]
+fn close_does_not_hang_when_shutdown_autocmd_blocks_nvim_when_nvim_exists() {
+    if !nvim_is_available() {
+        return;
+    }
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args(["open", "--name", "slow-close", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+    neowright()
+        .args(["exec", "--name", "slow-close", "autocmd QuitPre * sleep 10"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+
+    let output = run_neowright_with_timeout(
+        &["close", "--name", "slow-close"],
+        state.path(),
+        std::time::Duration::from_secs(5),
+    );
+    assert!(output.status.success(), "close should succeed: {output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("### Closed Sessions"),
+        "close should report closed sessions: {output:?}"
+    );
+    assert_eq!(registry_records(state.path()), Vec::<Value>::new());
+}
+
+#[test]
 fn supervisor_sigterm_terminates_child_nvim_when_nvim_exists() {
     if !nvim_is_available() {
         return;
@@ -1178,6 +1215,43 @@ fn assert_neowright_skill_installed(skill_path: &std::path::Path) {
     assert!(!contents.contains("-- --clean"));
     assert!(!contents.contains("test fixtures"));
     assert!(!contents.contains("force-close"));
+}
+
+fn run_neowright_with_timeout(
+    args: &[&str],
+    state_home: &std::path::Path,
+    timeout: std::time::Duration,
+) -> std::process::Output {
+    let binary = std::env::var_os("CARGO_BIN_EXE_neowright")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| assert_cmd::cargo::cargo_bin("neowright"));
+    let mut child = std::process::Command::new(binary)
+        .args(args)
+        .env("XDG_STATE_HOME", state_home)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn neowright");
+
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
+        if child.try_wait().expect("poll neowright").is_some() {
+            return child.wait_with_output().expect("neowright output");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    let _ = child.kill();
+    let output = child
+        .wait_with_output()
+        .expect("timed out neowright output");
+    panic!(
+        "neowright {:?} timed out after {:?}\nstdout:\n{}\nstderr:\n{}",
+        args,
+        timeout,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 fn wait_until(timeout: std::time::Duration, mut condition: impl FnMut() -> bool) {
