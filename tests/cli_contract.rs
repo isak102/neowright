@@ -46,6 +46,34 @@ fn no_args_prints_help_without_markdown_error() {
 }
 
 #[test]
+fn short_help_works_for_all_commands() {
+    let commands = [
+        vec!["-h"],
+        vec!["open", "-h"],
+        vec!["list", "-h"],
+        vec!["close", "-h"],
+        vec!["keys", "-h"],
+        vec!["exec", "-h"],
+        vec!["eval", "-h"],
+        vec!["wait", "-h"],
+        vec!["snapshot", "-h"],
+        vec!["resize", "-h"],
+        vec!["skills", "-h"],
+        vec!["skills", "install", "-h"],
+    ];
+
+    for command in commands {
+        neowright()
+            .args(command)
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Usage:"))
+            .stdout(predicate::str::contains("### Error").not())
+            .stderr(predicate::str::is_empty());
+    }
+}
+
+#[test]
 fn malformed_size_returns_markdown_error() {
     neowright()
         .args(["resize", "--session", "abc", "240"])

@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::io::{self, Write};
 
-use clap::{CommandFactory, Parser};
+use clap::{CommandFactory, Parser, error::ErrorKind};
 
 pub mod cli;
 mod commands;
@@ -29,6 +29,14 @@ pub fn run_with_io(
     let cli = match cli::Cli::try_parse_from(args) {
         Ok(cli) => cli,
         Err(error) => {
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) {
+                let _ = write!(stdout, "{error}");
+                return 0;
+            }
+
             let _ = output::write_error(stderr, error.to_string());
             return 2;
         }

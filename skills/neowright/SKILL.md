@@ -67,6 +67,7 @@ neowright close --name debug
 
 - Be explicit about which Session is being driven.
 - Use `--name` for repeatable targeting across commands.
+- Use `-h` on any command or subcommand when you need exact arguments, for example `neowright eval -h`.
 - Read Neowright output as Agent-Readable Markdown; important values such as Session IDs, paths, and results are reported as structured Markdown fields.
 - Use Snapshot artifact paths from command output when referring to saved captures.
 - Prefer `wait` for state changes that may be asynchronous, such as plugin startup, diagnostics, completion, or UI redraws.
