@@ -23,13 +23,12 @@ pub fn run(args: OpenArgs) -> Result<String, String> {
     let size = args.size.unwrap_or_default();
     let records = active_records()?;
 
-    if let Some(name) = &args.name {
-        if records
+    if let Some(name) = &args.name
+        && records
             .iter()
             .any(|record| record.name.as_deref() == Some(name.as_str()))
-        {
-            return Err(format!("Session Name `{name}` is already active"));
-        }
+    {
+        return Err(format!("Session Name `{name}` is already active"));
     }
 
     let id = generate_id();

@@ -70,13 +70,13 @@ end
 return modified
 "#,
         )?;
-        if let NvimValue::Array(buffers) = modified {
-            if !buffers.is_empty() {
-                return Err(format!(
-                    "Session has unsaved changes; use `--force` to discard them ({})",
-                    buffers.len()
-                ));
-            }
+        if let NvimValue::Array(buffers) = modified
+            && !buffers.is_empty()
+        {
+            return Err(format!(
+                "Session has unsaved changes; use `--force` to discard them ({})",
+                buffers.len()
+            ));
         }
     }
 

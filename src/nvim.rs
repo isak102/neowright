@@ -53,8 +53,7 @@ impl NvimClient {
     }
 
     pub fn exec(&mut self, command: &str) -> Result<String, String> {
-        let mut opts = Vec::new();
-        opts.push((Value::from("output"), Value::Boolean(true)));
+        let opts = vec![(Value::from("output"), Value::Boolean(true))];
         let result = self.request(
             "nvim_exec2",
             vec![Value::from(command.to_string()), Value::Map(opts)],
@@ -183,10 +182,10 @@ impl NvimValue {
     }
 
     fn map_key(value: Value) -> String {
-        if let Value::String(value) = &value {
-            if let Some(value) = value.as_str() {
-                return value.to_string();
-            }
+        if let Value::String(value) = &value
+            && let Some(value) = value.as_str()
+        {
+            return value.to_string();
         }
 
         match Self::from_msgpack(value) {

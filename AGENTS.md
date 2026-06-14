@@ -14,4 +14,4 @@ Use the single-context layout: root `CONTEXT.md` plus root `docs/adr/`. See `doc
 
 ## Repository workflow
 
-After making Rust code changes, always run `cargo fmt` and `cargo test`; both must pass before considering the work complete.
+After making Rust code changes, always run `just verify`; it must pass before considering the work complete.
