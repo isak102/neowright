@@ -5,8 +5,62 @@ on:
   pull_request:
 
 jobs:
-  test:
-    name: Format, lint, and test
+  neovim-versions:
+    name: Discover Neovim versions
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.versions.outputs.versions }}
+
+    steps:
+      - name: Select latest Neovim patches
+        id: versions
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tags = await github.paginate(github.rest.repos.listTags, {
+              owner: 'neovim',
+              repo: 'neovim',
+              per_page: 100,
+            });
+
+            const versionsByLine = new Map();
+            for (const tag of tags) {
+              const match = tag.name.match(/^v(\d+)\.(\d+)\.(\d+)$/);
+              if (!match) continue;
+
+              const [, major, minor, patch] = match.map(Number);
+              const line = `${major}.${minor}`;
+              const versions = versionsByLine.get(line) ?? [];
+              versions.push({ major, minor, patch, tag: tag.name });
+              versionsByLine.set(line, versions);
+            }
+
+            const lines = [...versionsByLine.keys()]
+              .map((line) => {
+                const [major, minor] = line.split('.').map(Number);
+                return { major, minor, line };
+              })
+              .sort((a, b) => b.major - a.major || b.minor - a.minor)
+              .slice(0, 2);
+
+            const selected = lines.flatMap(({ line }) =>
+              versionsByLine
+                .get(line)
+                .sort((a, b) => b.patch - a.patch)
+                .slice(0, 3)
+                .map((version) => version.tag),
+            );
+
+            if (selected.length === 0) {
+              core.setFailed('No stable Neovim tags found');
+              return;
+            }
+
+            core.info(`Selected Neovim versions: ${selected.join(', ')}`);
+            core.setOutput('versions', JSON.stringify(selected));
+
+  quality:
+    name: Format and lint
     runs-on: ubuntu-latest
 
     steps:
@@ -16,10 +70,8 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Neovim
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y neovim
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -27,5 +79,80 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  build:
+    name: Build tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+        with:
+          shared-key: ${{ matrix.os }}
+
+      - name: Compile tests
+        run: cargo test --no-run --locked
+
+  test:
+    name: Test ${{ matrix.neovim-version }} (${{ matrix.os }})
+    needs: [neovim-versions, build]
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        neovim-version: ${{ fromJSON(needs.neovim-versions.outputs.versions) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.os }}
+
+      - name: Install Neovim
+        run: |
+          case "${{ runner.os }}" in
+            Linux)
+              archive="nvim-linux-x86_64.tar.gz"
+              ;;
+            macOS)
+              case "$(uname -m)" in
+                arm64) archive="nvim-macos-arm64.tar.gz" ;;
+                x86_64) archive="nvim-macos-x86_64.tar.gz" ;;
+                *) echo "unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
+              esac
+              ;;
+            *)
+              echo "unsupported runner OS: ${{ runner.os }}" >&2
+              exit 1
+              ;;
+          esac
+
+          curl -fsSLO "https://github.com/neovim/neovim/releases/download/${{ matrix.neovim-version }}/${archive}"
+          mkdir -p "$RUNNER_TEMP/neovim"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/neovim" --strip-components=1
+          echo "$RUNNER_TEMP/neovim/bin" >> "$GITHUB_PATH"
+
+      - name: Show Neovim version
+        run: nvim --version
+
       - name: Run tests
-        run: cargo test
+        run: cargo test --locked
