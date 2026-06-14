@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
+use std::time::Duration;
 
 use rmpv::Value;
 use rmpv::decode::read_value;
@@ -34,6 +35,29 @@ impl NvimClient {
         let stream = UnixStream::connect(path).map_err(|error| {
             format!(
                 "failed to connect to Neovim control socket `{}`: {error}",
+                path.display()
+            )
+        })?;
+
+        Ok(Self {
+            stream,
+            next_request_id: 1,
+        })
+    }
+
+    pub(crate) fn connect_path_with_read_timeout(
+        path: &Path,
+        timeout: Duration,
+    ) -> Result<Self, String> {
+        let stream = UnixStream::connect(path).map_err(|error| {
+            format!(
+                "failed to connect to Neovim control socket `{}`: {error}",
+                path.display()
+            )
+        })?;
+        stream.set_read_timeout(Some(timeout)).map_err(|error| {
+            format!(
+                "failed to set Neovim control socket read timeout `{}`: {error}",
                 path.display()
             )
         })?;

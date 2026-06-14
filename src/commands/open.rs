@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
@@ -139,6 +139,10 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
         .master
         .try_clone_reader()
         .map_err(|error| format!("failed to read PTY output: {error}"))?;
+    let mut writer = pair
+        .master
+        .take_writer()
+        .map_err(|error| format!("failed to write PTY input: {error}"))?;
     let reader_parser = Arc::clone(&parser);
     let reader_screen_path = screen_path.clone();
     thread::spawn(move || {
@@ -146,6 +150,13 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
         while let Ok(bytes_read) = reader.read(&mut buffer) {
             if bytes_read == 0 {
                 break;
+            }
+            if buffer[..bytes_read]
+                .windows(4)
+                .any(|window| window == b"\x1b[5n")
+            {
+                let _ = writer.write_all(b"\x1b[0n");
+                let _ = writer.flush();
             }
             let Ok(mut parser) = reader_parser.lock() else {
                 break;
@@ -332,7 +343,7 @@ fn wait_for_rpc(listen: &std::path::Path, timeout: Duration) -> Result<(), Strin
     let start = Instant::now();
     let mut last_error = String::new();
     while start.elapsed() < timeout {
-        match NvimClient::connect_path(listen)
+        match NvimClient::connect_path_with_read_timeout(listen, Duration::from_millis(250))
             .and_then(|mut client| client.eval_lua("return vim.v.vim_did_enter == 1"))
         {
             Ok(NvimValue::Bool(true)) => return Ok(()),
