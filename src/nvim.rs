@@ -30,7 +30,7 @@ impl NvimClient {
         Self::connect_path(&record.listen)
     }
 
-    fn connect_path(path: &Path) -> Result<Self, String> {
+    pub(crate) fn connect_path(path: &Path) -> Result<Self, String> {
         let stream = UnixStream::connect(path).map_err(|error| {
             format!(
                 "failed to connect to Neovim control socket `{}`: {error}",
@@ -91,7 +91,7 @@ impl NvimClient {
 
         self.request(
             "nvim_feedkeys",
-            vec![replaced, Value::from("m"), Value::Boolean(false)],
+            vec![replaced, Value::from("mx"), Value::Boolean(false)],
         )?;
         Ok(())
     }

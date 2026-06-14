@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
 use crate::cli::{OpenArgs, SessionSupervisorArgs};
+use crate::nvim::{NvimClient, NvimValue};
 use crate::session::{
     self, SessionRecord, SizeRecord, active_records, add_record, artifact_dir_for,
     ensure_artifact_dir, generate_id,
@@ -136,6 +137,7 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
     });
 
     wait_for_socket(&args.listen, READY_TIMEOUT)?;
+    wait_for_rpc(&args.listen, READY_TIMEOUT)?;
 
     add_record(SessionRecord {
         id: args.session.clone(),
@@ -238,6 +240,29 @@ fn wait_for_socket(listen: &std::path::Path, timeout: Duration) -> Result<(), St
         "timed out waiting for Neovim control socket `{}`",
         listen.display()
     ))
+}
+
+fn wait_for_rpc(listen: &std::path::Path, timeout: Duration) -> Result<(), String> {
+    let start = Instant::now();
+    let mut last_error = String::new();
+    while start.elapsed() < timeout {
+        match NvimClient::connect_path(listen)
+            .and_then(|mut client| client.eval_lua("return vim.v.vim_did_enter == 1"))
+        {
+            Ok(NvimValue::Bool(true)) => return Ok(()),
+            Ok(_) => {}
+            Err(error) => last_error = error,
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    if last_error.is_empty() {
+        Err("timed out waiting for Neovim RPC readiness".to_string())
+    } else {
+        Err(format!(
+            "timed out waiting for Neovim RPC readiness: {last_error}"
+        ))
+    }
 }
 
 fn socket_accepts_connections(path: &std::path::Path) -> bool {
