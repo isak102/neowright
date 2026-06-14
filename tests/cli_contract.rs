@@ -526,20 +526,20 @@ fn supervisor_sigterm_terminates_child_nvim_when_nvim_exists() {
         .get("supervisor_pid")
         .and_then(Value::as_u64)
         .expect("supervisor pid");
-    let listen = records[0]
-        .get("listen")
-        .and_then(Value::as_str)
-        .expect("listen path");
+    let child_pid = records[0]
+        .get("child_pid")
+        .and_then(Value::as_u64)
+        .expect("child pid");
 
-    assert!(neowright_socket_process_exists(listen));
+    assert!(process_exists(child_pid));
     unsafe {
         libc::kill(supervisor_pid as libc::pid_t, libc::SIGTERM);
     }
 
     wait_until(std::time::Duration::from_secs(5), || {
-        !neowright_socket_process_exists(listen)
+        !process_exists(child_pid)
     });
-    assert!(!neowright_socket_process_exists(listen));
+    assert!(!process_exists(child_pid));
 }
 
 #[test]
@@ -1018,6 +1018,11 @@ fn canonical_mvp_agent_debugging_loop_when_nvim_exists() {
         records[0].pointer("/size/rows").and_then(Value::as_u64),
         Some(12)
     );
+    let screen_path = session_screen_path(&records[0]);
+    wait_until(std::time::Duration::from_secs(5), || {
+        std::fs::read_to_string(&screen_path)
+            .is_ok_and(|contents| contents.contains("hello from keys"))
+    });
 
     neowright()
         .args(["snapshot", "--name", "demo"])
@@ -1230,6 +1235,22 @@ fn snapshot_files(snapshot_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     files
 }
 
+fn session_screen_path(record: &Value) -> std::path::PathBuf {
+    let artifact_dir = record
+        .get("artifact_dir")
+        .and_then(Value::as_str)
+        .expect("artifact dir");
+    let session_id = record
+        .get("id")
+        .and_then(Value::as_str)
+        .expect("session id");
+
+    std::path::Path::new(artifact_dir)
+        .join("sessions")
+        .join(session_id)
+        .join("screen.txt")
+}
+
 fn assert_snapshot_dimensions(contents: &str, cols: usize, rows: usize) {
     let lines = contents.split('\n').collect::<Vec<_>>();
     assert_eq!(lines.len(), rows);
@@ -1238,15 +1259,8 @@ fn assert_snapshot_dimensions(contents: &str, cols: usize, rows: usize) {
     }
 }
 
-fn neowright_socket_process_exists(listen: &str) -> bool {
-    let output = std::process::Command::new("ps")
-        .args(["-ax", "-o", "command="])
-        .output()
-        .expect("ps output");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    stdout
-        .lines()
-        .any(|line| line.contains("nvim --embed --listen") && line.contains(listen))
+fn process_exists(pid: u64) -> bool {
+    unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
 }
 
 fn assert_neowright_skill_installed(skill_path: &std::path::Path) {
