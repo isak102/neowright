@@ -86,11 +86,15 @@ pub fn run(args: OpenArgs) -> Result<String, String> {
         command.arg("--").args(&args.neovim_args);
     }
 
-    command
+    let mut supervisor = command
         .spawn()
         .map_err(|error| format!("failed to start Session supervisor: {error}"))?;
 
-    wait_until_ready(&listen, &ready_file, &supervisor_log)?;
+    if let Err(error) = wait_until_ready(&listen, &ready_file, &supervisor_log) {
+        let _ = supervisor.kill();
+        let _ = supervisor.wait();
+        return Err(error);
+    }
 
     let name = args.name.as_deref().unwrap_or("(unnamed)");
     Ok(format!(
@@ -175,9 +179,21 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
         }
     });
 
-    wait_for_socket(&args.listen, READY_TIMEOUT)?;
-    screen::restrict_socket_permissions(&args.listen)?;
-    wait_for_rpc(&args.listen, READY_TIMEOUT)?;
+    if let Err(error) = wait_for_socket(&args.listen, READY_TIMEOUT)
+        .and_then(|_| screen::restrict_socket_permissions(&args.listen))
+        .and_then(|_| wait_for_rpc(&args.listen, READY_TIMEOUT))
+    {
+        if let Some(child_pid) = child.process_id() {
+            unsafe {
+                libc::kill(child_pid as libc::pid_t, libc::SIGKILL);
+            }
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = fs::remove_file(&args.listen);
+        let _ = fs::remove_file(&pty_input_path);
+        return Err(error);
+    }
 
     add_record(SessionRecord {
         id: args.session.clone(),
