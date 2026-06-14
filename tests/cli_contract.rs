@@ -74,6 +74,20 @@ fn short_help_works_for_all_commands() {
 }
 
 #[test]
+fn keys_help_documents_rpc_and_pty_modes() {
+    neowright()
+        .args(["keys", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--pty"))
+        .stdout(predicate::str::contains("Neovim RPC"))
+        .stdout(predicate::str::contains("<Esc>"))
+        .stdout(predicate::str::contains("<CR>"))
+        .stdout(predicate::str::contains("<C-c>"))
+        .stdout(predicate::str::contains("<M-x>"));
+}
+
+#[test]
 fn malformed_size_returns_markdown_error() {
     neowright()
         .args(["resize", "--session", "abc", "240"])
@@ -299,6 +313,286 @@ fn snapshot_succeeds_while_nvim_is_blocked_at_hit_enter_prompt() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("### Snapshot"));
     assert!(stdout.contains("snapshot blocked"));
+}
+
+#[test]
+fn pty_keys_drive_real_session_and_are_visible_in_snapshot_when_nvim_exists() {
+    if !nvim_is_available() {
+        return;
+    }
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args([
+            "open", "--name", "main", "--size", "60x12", "--", "-u", "NONE",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["keys", "--name", "main", "--pty", "ihello from pty<Esc>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Sent PTY Keys"));
+
+    wait_until(std::time::Duration::from_secs(5), || {
+        let output = run_neowright_with_timeout(
+            &["snapshot", "--name", "main", "--inline"],
+            state.path(),
+            std::time::Duration::from_secs(2),
+        );
+        String::from_utf8_lossy(&output.stdout).contains("hello from pty")
+    });
+
+    neowright()
+        .args(["snapshot", "--name", "main", "--inline"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Contents"))
+        .stdout(predicate::str::contains("hello from pty"));
+
+    neowright()
+        .args(["eval", "--name", "main", "--raw", "return vim.fn.mode()"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match("^n\\n$").unwrap());
+}
+
+#[test]
+fn pty_keys_translate_terminal_input_inside_neovim_when_nvim_exists() {
+    if !nvim_is_available() {
+        return;
+    }
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args([
+            "open", "--name", "main", "--size", "60x12", "--", "-u", "NONE",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args([
+            "keys",
+            "--name",
+            "main",
+            "--pty",
+            ":let g:neowright_pty_cr = 'ok'<CR>",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args([
+            "eval",
+            "--name",
+            "main",
+            "--raw",
+            "return vim.g.neowright_pty_cr",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match("^ok\\n$").unwrap());
+
+    neowright()
+        .args([
+            "eval",
+            "--name",
+            "main",
+            "vim.keymap.set('n', '<M-x>', function() vim.g.neowright_pty_alt = 'ok' end)",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["keys", "--name", "main", "--pty", "<M-x>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args([
+            "wait",
+            "--name",
+            "main",
+            "--timeout",
+            "2s",
+            "return vim.g.neowright_pty_alt == 'ok'",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args([
+            "keys",
+            "--name",
+            "main",
+            "--pty",
+            "ggddihello<Tab>world<Esc>",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args([
+            "eval",
+            "--name",
+            "main",
+            "--raw",
+            "return vim.api.nvim_get_current_line()",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match("^hello\\tworld\\n$").unwrap());
+
+    neowright()
+        .args(["keys", "--name", "main", "--pty", "ggddiabc<BS>d<Esc>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args([
+            "eval",
+            "--name",
+            "main",
+            "--raw",
+            "return vim.api.nvim_get_current_line()",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match("^abd\\n$").unwrap());
+
+    neowright()
+        .args(["keys", "--name", "main", "--pty", "iunfinished<C-c>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["eval", "--name", "main", "--raw", "return vim.fn.mode()"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match("^n\\n$").unwrap());
+}
+
+#[test]
+fn pty_keys_reject_unsupported_notation_without_sending_bytes_when_nvim_exists() {
+    if !nvim_is_available() {
+        return;
+    }
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args(["open", "--name", "main", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["keys", "--name", "main", "--pty", "i<leader>sent<Esc>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("### Error"))
+        .stderr(predicate::str::contains(
+            "unsupported PTY key notation: <leader>",
+        ));
+
+    neowright()
+        .args([
+            "eval",
+            "--name",
+            "main",
+            "--raw",
+            "return vim.api.nvim_get_current_line()",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match("^\\n$").unwrap());
+}
+
+#[test]
+fn pty_keys_dismiss_hit_enter_prompt_when_nvim_exists() {
+    if !nvim_is_available() {
+        return;
+    }
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args([
+            "open", "--name", "main", "--size", "60x12", "--", "-u", "NONE",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["keys", "--name", "main", ":echoerr 'pty blocked'<CR>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+
+    wait_until(std::time::Duration::from_secs(5), || {
+        let output = run_neowright_with_timeout(
+            &["snapshot", "--name", "main", "--inline"],
+            state.path(),
+            std::time::Duration::from_secs(2),
+        );
+        String::from_utf8_lossy(&output.stdout).contains("pty blocked")
+    });
+
+    neowright()
+        .args(["keys", "--name", "main", "--pty", "<CR>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["eval", "--name", "main", "--raw", "return 'rpc responsive'"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match("^rpc responsive\\n$").unwrap());
 }
 
 #[test]

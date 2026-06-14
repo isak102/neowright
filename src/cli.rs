@@ -98,9 +98,17 @@ pub struct CloseArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(about = "Send keys to a Session")]
 pub struct KeysArgs {
     #[command(flatten)]
     pub target: TargetSelector,
+
+    #[arg(
+        long,
+        help = "Write terminal input bytes directly to the Session PTY instead of using Neovim RPC",
+        long_help = "Write terminal input bytes directly to the Session PTY instead of using Neovim RPC. By default, keys are sent through Neovim RPC with Neovim key notation and mappings. PTY mode is an escape hatch for blocked UI states and supports only plain text plus terminal-level notation such as <Esc>, <CR>, <Tab>, <BS>, <C-c>, and <M-x>."
+    )]
+    pub pty: bool,
 
     pub keys: String,
 }

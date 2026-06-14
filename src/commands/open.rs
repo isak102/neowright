@@ -1,7 +1,7 @@
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -132,6 +132,8 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
     let size = SizeRecord::from(args.size);
     let screen_path = screen::runtime_dir(&args.artifact_dir, &args.session).join("screen.txt");
     let desired_size_path = screen::desired_size_path(&args.artifact_dir, &args.session);
+    let pty_input_path = screen::pty_input_path(&args.artifact_dir, &args.session);
+    let _ = fs::remove_file(&pty_input_path);
     let parser = Arc::new(Mutex::new(screen::parser_for(size)));
     persist_current_screen(&parser, &screen_path, size)?;
 
@@ -139,12 +141,15 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
         .master
         .try_clone_reader()
         .map_err(|error| format!("failed to read PTY output: {error}"))?;
-    let mut writer = pair
+    let writer = pair
         .master
         .take_writer()
         .map_err(|error| format!("failed to write PTY input: {error}"))?;
+    let writer = Arc::new(Mutex::new(writer));
+    spawn_pty_input_listener(&pty_input_path, Arc::clone(&writer))?;
     let reader_parser = Arc::clone(&parser);
     let reader_screen_path = screen_path.clone();
+    let reader_writer = Arc::clone(&writer);
     thread::spawn(move || {
         let mut buffer = [0; 8192];
         while let Ok(bytes_read) = reader.read(&mut buffer) {
@@ -154,6 +159,7 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
             if buffer[..bytes_read]
                 .windows(4)
                 .any(|window| window == b"\x1b[5n")
+                && let Ok(mut writer) = reader_writer.lock()
             {
                 let _ = writer.write_all(b"\x1b[0n");
                 let _ = writer.flush();
@@ -234,7 +240,39 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
 
     let _ = session::remove_record(&args.session);
     let _ = fs::remove_file(&args.listen);
+    let _ = fs::remove_file(&pty_input_path);
     Ok("Session supervisor exited.".to_string())
+}
+
+fn spawn_pty_input_listener(
+    path: &std::path::Path,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+) -> Result<(), String> {
+    let listener = UnixListener::bind(path).map_err(|error| {
+        format!(
+            "failed to create Session PTY input socket `{}`: {error}",
+            path.display()
+        )
+    })?;
+
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else {
+                break;
+            };
+            let mut bytes = Vec::new();
+            if stream.read_to_end(&mut bytes).is_err() {
+                continue;
+            }
+            let Ok(mut writer) = writer.lock() else {
+                break;
+            };
+            let _ = writer.write_all(&bytes);
+            let _ = writer.flush();
+        }
+    });
+
+    Ok(())
 }
 
 fn persist_current_screen(

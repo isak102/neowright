@@ -33,6 +33,14 @@ Send Neovim-style keys:
 neowright keys --name debug "<leader>ff"
 ```
 
+Use direct PTY input only as an escape hatch when Neovim is blocked and cannot answer RPC, for example to dismiss a hit-enter prompt:
+
+```bash
+neowright keys --name debug --pty "<CR>"
+```
+
+`keys --pty` is not full Neovim key notation. It supports plain text plus terminal-level notation such as `<Esc>`, `<CR>`, `<Tab>`, `<BS>`, `<C-c>`, and `<M-x>`, and rejects unsupported notation instead of guessing.
+
 Run an Ex command:
 
 ```bash

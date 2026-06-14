@@ -76,6 +76,14 @@ neowright exec "messages"
 neowright eval "return vim.inspect(vim.api.nvim_list_wins())"
 ```
 
+`neowright keys` uses Neovim RPC by default, so Neovim key notation and mappings work. If Neovim is blocked and cannot answer RPC, use the PTY escape hatch with terminal-level notation:
+
+```bash
+neowright keys --pty "<CR>"
+```
+
+PTY mode writes bytes directly to the Session PTY. It supports plain text plus a small syntax such as `<Esc>`, `<CR>`, `<Tab>`, `<BS>`, `<C-c>`, and `<M-x>`; unsupported notation fails instead of guessing.
+
 Wait for async UI state and capture what the agent can see:
 
 ```bash

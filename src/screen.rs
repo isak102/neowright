@@ -17,6 +17,10 @@ pub fn desired_size_path(artifact_dir: &Path, session_id: &str) -> PathBuf {
     runtime_dir(artifact_dir, session_id).join("desired-size.json")
 }
 
+pub fn pty_input_path(_artifact_dir: &Path, session_id: &str) -> PathBuf {
+    PathBuf::from(format!("/tmp/neowright-{session_id}-pty.sock"))
+}
+
 pub fn parser_for(size: SizeRecord) -> vt100::Parser {
     vt100::Parser::new(size.rows, size.cols, 0)
 }
