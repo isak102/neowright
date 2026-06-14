@@ -383,6 +383,162 @@ vim.api.nvim_create_user_command('NeowrightMark', function() vim.g.neowright_com
 }
 
 #[test]
+fn vnew_blank_buffer_accepts_text_from_neowright_keys() {
+    require_nvim();
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    open_session(state.path(), project.path(), "vnew", &["-u", "NONE"]);
+    neowright()
+        .args(["exec", "--name", "vnew", ":vnew"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "vnew",
+        "return #vim.api.nvim_tabpage_list_wins(0) == 2 and vim.fn.expand('%:t') == ''",
+    );
+
+    neowright()
+        .args(["keys", "--name", "vnew", "i"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "vnew",
+        "return vim.api.nvim_get_mode().mode == 'i'",
+    );
+
+    neowright()
+        .args(["keys", "--name", "vnew", "helloworld"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+
+    wait_for(
+        state.path(),
+        "vnew",
+        "return #vim.api.nvim_tabpage_list_wins(0) == 2 and vim.api.nvim_get_current_line() == 'helloworld'",
+    );
+
+    assert_eq!(
+        eval_raw(
+            state.path(),
+            "vnew",
+            "return {wins=#vim.api.nvim_tabpage_list_wins(0), line=vim.api.nvim_get_current_line(), file=vim.fn.expand('%:t')}"
+        ),
+        "{\"file\":\"\",\"line\":\"helloworld\",\"wins\":2}\n"
+    );
+}
+
+#[test]
+fn separated_neowright_keys_preserve_insert_mode_between_calls() {
+    require_nvim();
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    open_session(state.path(), project.path(), "split-keys", &["-u", "NONE"]);
+    neowright()
+        .args(["keys", "--name", "split-keys", "i"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "split-keys",
+        "return vim.api.nvim_get_mode().mode == 'i'",
+    );
+
+    neowright()
+        .args(["keys", "--name", "split-keys", "hello"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "split-keys",
+        "return vim.api.nvim_get_current_line() == 'hello' and vim.api.nvim_get_mode().mode == 'i'",
+    );
+
+    neowright()
+        .args(["keys", "--name", "split-keys", "world"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "split-keys",
+        "return vim.api.nvim_get_current_line() == 'helloworld' and vim.api.nvim_get_mode().mode == 'i'",
+    );
+}
+
+#[test]
+fn separated_neowright_escape_and_normal_keys_take_effect() {
+    require_nvim();
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    open_session(state.path(), project.path(), "normal-keys", &["-u", "NONE"]);
+    neowright()
+        .args(["keys", "--name", "normal-keys", "i"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "normal-keys",
+        "return vim.api.nvim_get_mode().mode == 'i'",
+    );
+
+    neowright()
+        .args(["keys", "--name", "normal-keys", "abc"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "normal-keys",
+        "return vim.api.nvim_get_current_line() == 'abc'",
+    );
+
+    neowright()
+        .args(["keys", "--name", "normal-keys", "<Esc>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "normal-keys",
+        "return vim.api.nvim_get_mode().mode == 'n'",
+    );
+
+    neowright()
+        .args(["keys", "--name", "normal-keys", "0x"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "normal-keys",
+        "return vim.api.nvim_get_current_line() == 'bc' and vim.api.nvim_get_mode().mode == 'n'",
+    );
+}
+
+#[test]
 fn tabs_splits_and_buffers_can_be_navigated_and_inspected() {
     require_nvim();
 

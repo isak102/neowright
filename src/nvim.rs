@@ -113,10 +113,7 @@ impl NvimClient {
             ],
         )?;
 
-        self.request(
-            "nvim_feedkeys",
-            vec![replaced, Value::from("mx"), Value::Boolean(false)],
-        )?;
+        self.request("nvim_input", vec![replaced])?;
         Ok(())
     }
 
