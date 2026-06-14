@@ -10,4 +10,7 @@ test:
 install:
 	cargo install --path . && neowright skills install --force
 
+release part:
+	nix run nixpkgs#bump-my-version -- bump {{part}}
+
 verify: fmt lint test
