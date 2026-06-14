@@ -7,4 +7,7 @@ lint:
 test:
 	cargo test
 
+install:
+	cargo install --path . && neowright skills install --force
+
 verify: fmt lint test
