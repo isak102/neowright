@@ -14,8 +14,7 @@ use crate::cli::{OpenArgs, SessionSupervisorArgs};
 use crate::nvim::{NvimClient, NvimValue};
 use crate::screen;
 use crate::session::{
-    self, SessionRecord, SizeRecord, active_records, add_record, artifact_dir_for,
-    ensure_artifact_dir, generate_id,
+    SessionRecord, SessionRegistry, SizeRecord, artifact_dir_for, ensure_artifact_dir, generate_id,
 };
 
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -24,7 +23,8 @@ static SUPERVISOR_SHUTDOWN: AtomicBool = AtomicBool::new(false);
 pub fn run(args: OpenArgs) -> Result<String, String> {
     let cwd = std::env::current_dir().map_err(|error| format!("failed to resolve cwd: {error}"))?;
     let size = args.size.unwrap_or_default();
-    let records = active_records()?;
+    let registry = SessionRegistry::load_global()?;
+    let records = registry.active_sessions()?;
 
     if let Some(name) = &args.name
         && records
@@ -195,7 +195,7 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
         return Err(error);
     }
 
-    add_record(SessionRecord {
+    SessionRegistry::load_global()?.insert(SessionRecord {
         id: args.session.clone(),
         name: args.name.clone(),
         cwd: args.cwd.clone(),
@@ -255,7 +255,9 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
         thread::sleep(Duration::from_millis(50));
     }
 
-    let _ = session::remove_record(&args.session);
+    if let Ok(registry) = SessionRegistry::load_global() {
+        let _ = registry.remove(&args.session);
+    }
     let _ = fs::remove_file(&args.listen);
     let _ = fs::remove_file(&pty_input_path);
     Ok("Session supervisor exited.".to_string())

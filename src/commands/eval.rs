@@ -4,7 +4,7 @@ use crate::nvim::NvimClient;
 use crate::session;
 
 pub fn run(args: EvalArgs) -> Result<CommandOutput, String> {
-    let record = session::resolve_target(&args.target)?;
+    let record = session::SessionRegistry::load_global()?.resolve_target(&args.target)?;
     let mut client = NvimClient::connect(&record)?;
     let result = client.eval_lua(&args.lua)?;
 

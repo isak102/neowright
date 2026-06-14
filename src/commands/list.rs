@@ -1,7 +1,7 @@
-use crate::session::active_records;
+use crate::session::SessionRegistry;
 
 pub fn run() -> Result<String, String> {
-    let records = active_records()?;
+    let records = SessionRegistry::load_global()?.active_sessions()?;
 
     if records.is_empty() {
         return Ok("No active Sessions.".to_string());

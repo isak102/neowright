@@ -7,9 +7,9 @@ const GRACEFUL_CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 
 pub fn run(args: CloseArgs) -> Result<CommandOutput, String> {
     let records = if args.all {
-        session::active_records()?
+        session::SessionRegistry::load_global()?.active_sessions()?
     } else {
-        vec![session::resolve_target(&args.target)?]
+        vec![session::SessionRegistry::load_global()?.resolve_target(&args.target)?]
     };
 
     if records.is_empty() {
@@ -83,7 +83,7 @@ return modified
     let command = if force { "qall!" } else { "qall" };
     client.notify_command(command)?;
     let exited = session::wait_for_record_exit(record, GRACEFUL_CLOSE_TIMEOUT);
-    session::remove_record(&record.id)?;
+    session::SessionRegistry::load_global()?.remove(&record.id)?;
     if !exited {
         session::kill_record_processes(record);
     }

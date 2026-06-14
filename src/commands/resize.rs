@@ -5,14 +5,15 @@ use crate::screen;
 use crate::session;
 
 pub fn run(args: ResizeArgs) -> Result<CommandOutput, String> {
-    let mut record = session::resolve_target(&args.target)?;
+    let registry = session::SessionRegistry::load_global()?;
+    let mut record = registry.resolve_target(&args.target)?;
     let mut client = NvimClient::connect(&record)?;
     client.command(&format!(
         "set columns={} lines={}",
         args.size.cols, args.size.rows
     ))?;
     record.size = args.size.into();
-    session::update_record(record.clone())?;
+    registry.update(record.clone())?;
     write_desired_size(&record)?;
 
     Ok(CommandOutput::Markdown(format!(

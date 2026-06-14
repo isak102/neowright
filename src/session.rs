@@ -65,7 +65,130 @@ pub fn ensure_artifact_dir(path: &Path) -> Result<(), String> {
     })
 }
 
-pub fn registry_path() -> Result<PathBuf, String> {
+pub struct SessionRegistry {
+    path: PathBuf,
+}
+
+impl SessionRegistry {
+    pub fn load_global() -> Result<Self, String> {
+        Ok(Self {
+            path: registry_path()?,
+        })
+    }
+
+    pub fn active_sessions(&self) -> Result<Vec<SessionRecord>, String> {
+        let active = self
+            .read_records()?
+            .into_iter()
+            .filter(|record| process_is_alive(record.supervisor_pid))
+            .collect::<Vec<_>>();
+        self.write_records(&active)?;
+        Ok(active)
+    }
+
+    pub fn insert(&self, record: SessionRecord) -> Result<(), String> {
+        let mut records = self.active_sessions()?;
+        records.retain(|existing| existing.id != record.id);
+        records.push(record);
+        self.write_records(&records)
+    }
+
+    pub fn remove(&self, id: &str) -> Result<(), String> {
+        let mut records = self.read_records()?;
+        records.retain(|record| record.id != id);
+        self.write_records(&records)
+    }
+
+    pub fn update(&self, updated: SessionRecord) -> Result<(), String> {
+        let mut records = self.active_sessions()?;
+        let Some(existing) = records.iter_mut().find(|record| record.id == updated.id) else {
+            return Err(format!(
+                "no active Session found with Session ID `{}`",
+                updated.id
+            ));
+        };
+        *existing = updated;
+        self.write_records(&records)
+    }
+
+    pub fn resolve_target(&self, selector: &TargetSelector) -> Result<SessionRecord, String> {
+        let records = self.active_sessions()?;
+
+        if let Some(id) = &selector.session {
+            return records
+                .into_iter()
+                .find(|record| record.id == *id)
+                .ok_or_else(|| format!("no active Session found with Session ID `{id}`"));
+        }
+
+        if let Some(name) = &selector.name {
+            return records
+                .into_iter()
+                .find(|record| record.name.as_deref() == Some(name.as_str()))
+                .ok_or_else(|| format!("no active Session found with Session Name `{name}`"));
+        }
+
+        match records.len() {
+            0 => Err("no active Sessions; pass --session or --name after opening one".to_string()),
+            1 => Ok(records.into_iter().next().expect("one record exists")),
+            _ => Err(format!(
+                "multiple active Sessions; pass --session or --name\n\n{}",
+                active_session_list(&records)
+            )),
+        }
+    }
+
+    fn read_records(&self) -> Result<Vec<SessionRecord>, String> {
+        if !self.path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let contents = fs::read_to_string(&self.path).map_err(|error| {
+            format!(
+                "failed to read Session Registry `{}`: {error}",
+                self.path.display()
+            )
+        })?;
+
+        serde_json::from_str(&contents).map_err(|error| {
+            format!(
+                "failed to parse Session Registry `{}`: {error}",
+                self.path.display()
+            )
+        })
+    }
+
+    fn write_records(&self, records: &[SessionRecord]) -> Result<(), String> {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent).map_err(|error| {
+                format!(
+                    "failed to create Session Registry directory `{}`: {error}",
+                    parent.display()
+                )
+            })?;
+        }
+
+        let tmp_path = self
+            .path
+            .with_extension(format!("json.{}.tmp", generate_id()));
+        let contents = serde_json::to_string_pretty(records)
+            .map_err(|error| format!("failed to serialize Session Registry: {error}"))?;
+        fs::write(&tmp_path, contents).map_err(|error| {
+            format!(
+                "failed to write Session Registry `{}`: {error}",
+                tmp_path.display()
+            )
+        })?;
+        fs::rename(&tmp_path, &self.path).map_err(|error| {
+            format!(
+                "failed to update Session Registry `{}`: {error}",
+                self.path.display()
+            )
+        })
+    }
+}
+
+fn registry_path() -> Result<PathBuf, String> {
     let base = if let Some(xdg_state_home) = env::var_os("XDG_STATE_HOME") {
         PathBuf::from(xdg_state_home)
     } else if let Some(home) = env::var_os("HOME") {
@@ -75,116 +198,6 @@ pub fn registry_path() -> Result<PathBuf, String> {
     };
 
     Ok(base.join("neowright/registry.json"))
-}
-
-pub fn read_registry() -> Result<Vec<SessionRecord>, String> {
-    let path = registry_path()?;
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-
-    let contents = fs::read_to_string(&path).map_err(|error| {
-        format!(
-            "failed to read Session Registry `{}`: {error}",
-            path.display()
-        )
-    })?;
-
-    serde_json::from_str(&contents).map_err(|error| {
-        format!(
-            "failed to parse Session Registry `{}`: {error}",
-            path.display()
-        )
-    })
-}
-
-pub fn write_registry(records: &[SessionRecord]) -> Result<(), String> {
-    let path = registry_path()?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| {
-            format!(
-                "failed to create Session Registry directory `{}`: {error}",
-                parent.display()
-            )
-        })?;
-    }
-
-    let tmp_path = path.with_extension(format!("json.{}.tmp", generate_id()));
-    let contents = serde_json::to_string_pretty(records)
-        .map_err(|error| format!("failed to serialize Session Registry: {error}"))?;
-    fs::write(&tmp_path, contents).map_err(|error| {
-        format!(
-            "failed to write Session Registry `{}`: {error}",
-            tmp_path.display()
-        )
-    })?;
-    fs::rename(&tmp_path, &path).map_err(|error| {
-        format!(
-            "failed to update Session Registry `{}`: {error}",
-            path.display()
-        )
-    })
-}
-
-pub fn active_records() -> Result<Vec<SessionRecord>, String> {
-    let active = read_registry()?
-        .into_iter()
-        .filter(|record| process_is_alive(record.supervisor_pid))
-        .collect::<Vec<_>>();
-    write_registry(&active)?;
-    Ok(active)
-}
-
-pub fn add_record(record: SessionRecord) -> Result<(), String> {
-    let mut records = active_records()?;
-    records.retain(|existing| existing.id != record.id);
-    records.push(record);
-    write_registry(&records)
-}
-
-pub fn remove_record(id: &str) -> Result<(), String> {
-    let mut records = read_registry()?;
-    records.retain(|record| record.id != id);
-    write_registry(&records)
-}
-
-pub fn update_record(updated: SessionRecord) -> Result<(), String> {
-    let mut records = active_records()?;
-    let Some(existing) = records.iter_mut().find(|record| record.id == updated.id) else {
-        return Err(format!(
-            "no active Session found with Session ID `{}`",
-            updated.id
-        ));
-    };
-    *existing = updated;
-    write_registry(&records)
-}
-
-pub fn resolve_target(selector: &TargetSelector) -> Result<SessionRecord, String> {
-    let records = active_records()?;
-
-    if let Some(id) = &selector.session {
-        return records
-            .into_iter()
-            .find(|record| record.id == *id)
-            .ok_or_else(|| format!("no active Session found with Session ID `{id}`"));
-    }
-
-    if let Some(name) = &selector.name {
-        return records
-            .into_iter()
-            .find(|record| record.name.as_deref() == Some(name.as_str()))
-            .ok_or_else(|| format!("no active Session found with Session Name `{name}`"));
-    }
-
-    match records.len() {
-        0 => Err("no active Sessions; pass --session or --name after opening one".to_string()),
-        1 => Ok(records.into_iter().next().expect("one record exists")),
-        _ => Err(format!(
-            "multiple active Sessions; pass --session or --name\n\n{}",
-            active_session_list(&records)
-        )),
-    }
 }
 
 fn active_session_list(records: &[SessionRecord]) -> String {

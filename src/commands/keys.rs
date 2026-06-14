@@ -8,7 +8,7 @@ use crate::screen;
 use crate::session;
 
 pub fn run(args: KeysArgs) -> Result<CommandOutput, String> {
-    let record = session::resolve_target(&args.target)?;
+    let record = session::SessionRegistry::load_global()?.resolve_target(&args.target)?;
     if args.pty {
         let bytes = translate_pty_keys(&args.keys)?;
         let path = screen::pty_input_path(&record.artifact_dir, &record.id);
