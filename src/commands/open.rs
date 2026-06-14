@@ -227,9 +227,6 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
             parser
                 .screen_mut()
                 .set_size(desired_size.rows, desired_size.cols);
-            let contents = screen::snapshot_text(&parser, desired_size);
-            drop(parser);
-            screen::write_latest(&screen_path, &contents)?;
         }
 
         thread::sleep(Duration::from_millis(50));
