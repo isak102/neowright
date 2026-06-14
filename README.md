@@ -41,7 +41,7 @@ curl -fsSL https://raw.githubusercontent.com/isak102/neowright/master/install.sh
 Install the latest release from git with Cargo:
 
 ```bash
-cargo install --git https://github.com/isak102/neowright --tag v0.1.0 neowright
+cargo install --git https://github.com/isak102/neowright --tag v0.2.0 neowright
 ```
 
 ### Install the Agent Skill
