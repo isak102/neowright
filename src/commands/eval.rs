@@ -1,6 +1,7 @@
 use crate::cli::EvalArgs;
 use crate::commands::CommandOutput;
 use crate::nvim::NvimClient;
+use crate::output;
 use crate::session;
 
 pub fn run(args: EvalArgs) -> Result<CommandOutput, String> {
@@ -12,9 +13,8 @@ pub fn run(args: EvalArgs) -> Result<CommandOutput, String> {
         return Ok(CommandOutput::Raw(format!("{}\n", result.format_raw())));
     }
 
-    Ok(CommandOutput::Markdown(format!(
-        "### Result\n```text\n{}\n```\n\n### Ran Lua\n```lua\n{}\n```\n",
-        result.format_display(),
-        args.lua
+    Ok(CommandOutput::Markdown(output::result_with_lua(
+        &result.format_display(),
+        &args.lua,
     )))
 }

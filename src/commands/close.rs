@@ -1,6 +1,7 @@
 use crate::cli::CloseArgs;
 use crate::commands::CommandOutput;
 use crate::nvim::{NvimClient, NvimValue};
+use crate::output::MarkdownDocument;
 use crate::session;
 
 const GRACEFUL_CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
@@ -13,9 +14,11 @@ pub fn run(args: CloseArgs) -> Result<CommandOutput, String> {
     };
 
     if records.is_empty() {
-        return Ok(CommandOutput::Markdown(
-            "### Closed Sessions\nNo active Sessions.\n".to_string(),
-        ));
+        let mut markdown = MarkdownDocument::new();
+        markdown
+            .section("Closed Sessions")
+            .text("No active Sessions.");
+        return Ok(CommandOutput::Markdown(markdown.finish()));
     }
 
     let mut successes = Vec::new();
@@ -27,33 +30,34 @@ pub fn run(args: CloseArgs) -> Result<CommandOutput, String> {
         }
     }
 
-    let mut markdown = String::from("### Closed Sessions\n");
+    let mut markdown = MarkdownDocument::new();
+    markdown.section("Closed Sessions");
     if successes.is_empty() {
-        markdown.push_str("None.\n");
+        markdown.text("None.");
     } else {
         for record in &successes {
-            markdown.push_str(&format!(
-                "- Session ID: `{}`\n  Session Name: `{}`\n",
-                record.id,
-                record.name.as_deref().unwrap_or("(unnamed)")
-            ));
+            markdown.field("Session ID", &record.id).continuation_field(
+                "Session Name",
+                record.name.as_deref().unwrap_or("(unnamed)"),
+            );
         }
     }
 
     if !failures.is_empty() {
-        markdown.push_str("\n### Failed Sessions\n");
+        markdown.section("Failed Sessions");
         for (record, error) in failures {
-            markdown.push_str(&format!(
-                "- Session ID: `{}`\n  Session Name: `{}`\n  Error: {}\n",
-                record.id,
-                record.name.as_deref().unwrap_or("(unnamed)"),
-                error
-            ));
+            markdown
+                .field("Session ID", &record.id)
+                .continuation_field(
+                    "Session Name",
+                    record.name.as_deref().unwrap_or("(unnamed)"),
+                )
+                .continuation_text("Error", error);
         }
-        return Err(markdown);
+        return Err(markdown.finish());
     }
 
-    Ok(CommandOutput::Markdown(markdown))
+    Ok(CommandOutput::Markdown(markdown.finish()))
 }
 
 fn close_one(record: &session::SessionRecord, force: bool) -> Result<(), String> {

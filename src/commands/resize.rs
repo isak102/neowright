@@ -1,6 +1,7 @@
 use crate::cli::ResizeArgs;
 use crate::commands::CommandOutput;
 use crate::nvim::NvimClient;
+use crate::output::MarkdownDocument;
 use crate::screen;
 use crate::session;
 
@@ -16,12 +17,17 @@ pub fn run(args: ResizeArgs) -> Result<CommandOutput, String> {
     registry.update(record.clone())?;
     write_desired_size(&record)?;
 
-    Ok(CommandOutput::Markdown(format!(
-        "### Resized Session\n- Session ID: `{}`\n- Session Name: `{}`\n- Size: `{}`\n",
-        record.id,
-        record.name.as_deref().unwrap_or("(unnamed)"),
-        record.size
-    )))
+    let mut markdown = MarkdownDocument::new();
+    markdown
+        .section("Resized Session")
+        .field("Session ID", &record.id)
+        .field(
+            "Session Name",
+            record.name.as_deref().unwrap_or("(unnamed)"),
+        )
+        .field("Size", record.size);
+
+    Ok(CommandOutput::Markdown(markdown.finish()))
 }
 
 fn write_desired_size(record: &session::SessionRecord) -> Result<(), String> {

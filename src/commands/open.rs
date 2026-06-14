@@ -2,8 +2,11 @@ use std::fs::{self, File};
 use std::process::{Command, Stdio};
 
 use crate::cli::{OpenArgs, SessionSupervisorArgs};
+use crate::output;
 use crate::screen;
-use crate::session::{SessionRegistry, artifact_dir_for, ensure_artifact_dir, generate_id};
+use crate::session::{
+    SessionRecord, SessionRegistry, SizeRecord, artifact_dir_for, ensure_artifact_dir, generate_id,
+};
 use crate::session_supervisor;
 
 pub fn run(args: OpenArgs) -> Result<String, String> {
@@ -83,12 +86,16 @@ pub fn run(args: OpenArgs) -> Result<String, String> {
         return Err(error);
     }
 
-    let name = args.name.as_deref().unwrap_or("(unnamed)");
-    Ok(format!(
-        "Session opened.\n- Session ID: `{id}`\n- Session Name: `{name}`\n- Opened From: `{}`\n- Size: `{size}`\n- Artifact Directory: `{}`",
-        cwd.display(),
-        artifact_dir.display()
-    ))
+    Ok(output::opened_session(&SessionRecord {
+        id,
+        name: args.name,
+        cwd,
+        artifact_dir,
+        size: SizeRecord::from(size),
+        supervisor_pid: supervisor.id(),
+        child_pid: None,
+        listen,
+    }))
 }
 
 pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {

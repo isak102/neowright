@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::cli::SnapshotArgs;
 use crate::commands::CommandOutput;
+use crate::output::MarkdownDocument;
 use crate::screen;
 use crate::session;
 
@@ -33,20 +34,20 @@ pub fn run(args: SnapshotArgs) -> Result<CommandOutput, String> {
     fs::write(&path, &snapshot)
         .map_err(|error| format!("failed to write Snapshot `{}`: {error}", path.display()))?;
 
-    let mut markdown = format!(
-        "### Snapshot\n- Session ID: `{}`\n- Session Name: `{}`\n- Size: `{}`\n- Artifact: `{}`\n\n### Contents\n```text\n",
-        record.id,
-        record.name.as_deref().unwrap_or("(unnamed)"),
-        record.size,
-        path.display()
-    );
-    markdown.push_str(&snapshot);
-    if !snapshot.ends_with('\n') {
-        markdown.push('\n');
-    }
-    markdown.push_str("```\n");
+    let mut markdown = MarkdownDocument::new();
+    markdown
+        .section("Snapshot")
+        .field("Session ID", &record.id)
+        .field(
+            "Session Name",
+            record.name.as_deref().unwrap_or("(unnamed)"),
+        )
+        .field("Size", record.size)
+        .field("Artifact", path.display())
+        .section("Contents")
+        .code_block("text", &snapshot);
 
-    Ok(CommandOutput::Markdown(markdown))
+    Ok(CommandOutput::Markdown(markdown.finish()))
 }
 
 fn read_settled_screen(path: &std::path::Path) -> Result<String, String> {

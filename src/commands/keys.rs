@@ -4,6 +4,7 @@ use std::os::unix::net::UnixStream;
 use crate::cli::KeysArgs;
 use crate::commands::CommandOutput;
 use crate::nvim::NvimClient;
+use crate::output;
 use crate::screen;
 use crate::session;
 
@@ -31,18 +32,18 @@ pub fn run(args: KeysArgs) -> Result<CommandOutput, String> {
             )
         })?;
 
-        return Ok(CommandOutput::Markdown(format!(
-            "### Sent PTY Keys\n```\n{}\n```\n",
-            args.keys
+        return Ok(CommandOutput::Markdown(output::sent_keys(
+            "Sent PTY Keys",
+            &args.keys,
         )));
     }
 
     let mut client = NvimClient::connect(&record)?;
     client.feed_keys(&args.keys)?;
 
-    Ok(CommandOutput::Markdown(format!(
-        "### Sent Keys\n```\n{}\n```\n",
-        args.keys
+    Ok(CommandOutput::Markdown(output::sent_keys(
+        "Sent Keys",
+        &args.keys,
     )))
 }
 
