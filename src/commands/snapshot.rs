@@ -13,6 +13,7 @@ const SCREEN_SETTLE_AGE: Duration = Duration::from_millis(100);
 
 pub fn run(args: SnapshotArgs) -> Result<CommandOutput, String> {
     let record = session::resolve_target(&args.target)?;
+    let _ = args.inline;
     let current_screen = screen::screen_path(&record);
     let snapshot = read_settled_screen(&current_screen)?;
     let snapshot = screen::normalize_text(&snapshot, record.size);
@@ -34,21 +35,17 @@ pub fn run(args: SnapshotArgs) -> Result<CommandOutput, String> {
         .map_err(|error| format!("failed to write Snapshot `{}`: {error}", path.display()))?;
 
     let mut markdown = format!(
-        "### Snapshot\n- Session ID: `{}`\n- Session Name: `{}`\n- Size: `{}`\n- Artifact: [{}]({})\n",
+        "### Snapshot\n- Session ID: `{}`\n- Session Name: `{}`\n- Size: `{}`\n- Artifact: `{}`\n\n### Contents\n```text\n",
         record.id,
         record.name.as_deref().unwrap_or("(unnamed)"),
         record.size,
-        path.display(),
         path.display()
     );
-    if args.inline {
-        markdown.push_str("\n### Contents\n```text\n");
-        markdown.push_str(&snapshot);
-        if !snapshot.ends_with('\n') {
-            markdown.push('\n');
-        }
-        markdown.push_str("```\n");
+    markdown.push_str(&snapshot);
+    if !snapshot.ends_with('\n') {
+        markdown.push('\n');
     }
+    markdown.push_str("```\n");
 
     Ok(CommandOutput::Markdown(markdown))
 }

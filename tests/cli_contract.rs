@@ -232,14 +232,20 @@ fn snapshot_writes_timestamped_plain_text_artifact_when_nvim_exists() {
         .assert()
         .success();
 
-    neowright()
+    let output = neowright()
         .args(["snapshot", "--name", "main"])
         .env("XDG_STATE_HOME", state.path())
         .assert()
         .success()
         .stdout(predicate::str::contains("### Snapshot"))
         .stdout(predicate::str::contains("Artifact:"))
-        .stdout(predicate::str::contains("hello").not());
+        .stdout(predicate::str::contains("### Contents"))
+        .stdout(predicate::str::contains("hello"))
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(output).expect("snapshot stdout");
+    assert_eq!(stdout.matches(".neowright/snapshots/").count(), 1);
 
     let snapshot_dir = project.path().join(".neowright/snapshots");
     let snapshots = snapshot_files(&snapshot_dir);
@@ -1293,7 +1299,8 @@ fn canonical_mvp_agent_debugging_loop_when_nvim_exists() {
         .success()
         .stdout(predicate::str::contains("### Snapshot"))
         .stdout(predicate::str::contains("Artifact:"))
-        .stdout(predicate::str::contains("hello from keys").not());
+        .stdout(predicate::str::contains("### Contents"))
+        .stdout(predicate::str::contains("hello from keys"));
     let snapshot_dir = project.path().join(".neowright/snapshots");
     let snapshots = snapshot_files(&snapshot_dir);
     assert_eq!(snapshots.len(), 1);
