@@ -46,7 +46,7 @@ pub fn run(args: OpenArgs) -> Result<String, String> {
         )
     })?;
 
-    let listen = std::path::PathBuf::from(format!("/tmp/neowright-{id}.sock"));
+    let listen = screen::nvim_listen_path(&id);
     let ready_file = runtime_dir.join("ready");
     let supervisor_log = runtime_dir.join("supervisor.log");
     let current_exe = std::env::current_exe()
@@ -176,6 +176,7 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
     });
 
     wait_for_socket(&args.listen, READY_TIMEOUT)?;
+    screen::restrict_socket_permissions(&args.listen)?;
     wait_for_rpc(&args.listen, READY_TIMEOUT)?;
 
     add_record(SessionRecord {
@@ -254,6 +255,7 @@ fn spawn_pty_input_listener(
             path.display()
         )
     })?;
+    screen::restrict_socket_permissions(path)?;
 
     thread::spawn(move || {
         for stream in listener.incoming() {
