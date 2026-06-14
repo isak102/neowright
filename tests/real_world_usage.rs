@@ -67,9 +67,9 @@ fn wait_for(state: &std::path::Path, name: &str, lua: &str) {
         .stdout(predicate::str::contains("### Result"));
 }
 
-fn snapshot_inline(state: &std::path::Path, name: &str) -> String {
+fn snapshot_output(state: &std::path::Path, name: &str) -> String {
     let output = neowright()
-        .args(["snapshot", "--name", name, "--inline"])
+        .args(["snapshot", "--name", name])
         .env("XDG_STATE_HOME", state)
         .assert()
         .success()
@@ -123,14 +123,14 @@ fn assert_not_exists(path: impl AsRef<std::path::Path>) {
 fn wait_for_snapshot_contains(state: &std::path::Path, name: &str, expected: &str) -> String {
     let start = std::time::Instant::now();
     let timeout = std::time::Duration::from_secs(3);
-    let mut snapshot = snapshot_inline(state, name);
+    let mut snapshot = snapshot_output(state, name);
 
     while start.elapsed() < timeout {
         if snapshot.contains(expected) {
             return snapshot;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
-        snapshot = snapshot_inline(state, name);
+        snapshot = snapshot_output(state, name);
     }
 
     panic!("snapshot for {name:?} did not contain {expected:?}\n{snapshot}");
@@ -141,7 +141,7 @@ fn assert_snapshot_dimensions(contents: &str, cols: usize, rows: usize) {
         .split("```text\n")
         .nth(1)
         .and_then(|contents| contents.split("\n```").next())
-        .expect("inline snapshot text block");
+        .expect("snapshot text block");
     let lines = body.split('\n').collect::<Vec<_>>();
     assert_eq!(
         lines.len(),
@@ -200,7 +200,7 @@ fn agent_can_edit_save_and_inspect_a_real_project_file() {
         std::fs::read_to_string(&file).expect("saved file"),
         "alpha\nagent-added line\n"
     );
-    assert_contains(&snapshot_inline(state.path(), "edit"), "agent-added line");
+    assert_contains(&snapshot_output(state.path(), "edit"), "agent-added line");
 }
 
 #[test]
@@ -240,7 +240,7 @@ fn agent_can_inspect_a_deterministic_floating_window() {
         config,
         "{\"height\":3,\"relative\":\"editor\",\"width\":24}\n"
     );
-    let snapshot = snapshot_inline(state.path(), "float");
+    let snapshot = snapshot_output(state.path(), "float");
     assert_contains(&snapshot, "NEOWRIGHT FLOAT");
     assert_contains(&snapshot, "stable content");
 }
@@ -285,7 +285,7 @@ fn agent_can_debug_diagnostics_without_lsp_or_plugins() {
         "{\"col\":13,\"lnum\":0,\"message\":\"expected expression after equals\",\"severity\":1}\n"
     );
     assert_contains(
-        &snapshot_inline(state.path(), "diag"),
+        &snapshot_output(state.path(), "diag"),
         "expected expression after equals",
     );
 }
@@ -683,7 +683,7 @@ fn quickfix_search_workflow_is_visible_and_inspectable() {
         eval_raw(state.path(), "quickfix", "return #vim.fn.getqflist()"),
         "2\n"
     );
-    let snapshot = snapshot_inline(state.path(), "quickfix");
+    let snapshot = snapshot_output(state.path(), "quickfix");
     assert_contains_any(&snapshot, &["first.txt", "second.txt"]);
 }
 
@@ -715,7 +715,7 @@ fn terminal_buffer_output_can_be_captured() {
     );
 
     assert_contains(
-        &snapshot_inline(state.path(), "terminal"),
+        &snapshot_output(state.path(), "terminal"),
         "neowright-terminal-ok",
     );
 }
@@ -1048,7 +1048,7 @@ fn pty_keys_still_work_after_resize() {
         "pty-resize",
         "return vim.api.nvim_get_current_line() == 'pty after resize'",
     );
-    let snapshot = snapshot_inline(state.path(), "pty-resize");
+    let snapshot = snapshot_output(state.path(), "pty-resize");
     assert_contains(&snapshot, "pty after resize");
     assert_snapshot_dimensions(&snapshot, 50, 12);
 }

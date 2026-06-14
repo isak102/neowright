@@ -13,7 +13,6 @@ const SCREEN_SETTLE_AGE: Duration = Duration::from_millis(100);
 
 pub fn run(args: SnapshotArgs) -> Result<CommandOutput, String> {
     let record = session::SessionRegistry::load_global()?.resolve_target(&args.target)?;
-    let _ = args.inline;
     let current_screen = screen::screen_path(&record);
     let snapshot = read_settled_screen(&current_screen)?;
     let snapshot = screen::normalize_text(&snapshot, record.size);

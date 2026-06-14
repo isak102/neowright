@@ -320,7 +320,7 @@ fn snapshot_writes_timestamped_plain_text_artifact_when_nvim_exists() {
     assert_snapshot_dimensions(&contents, 40, 10);
 
     neowright()
-        .args(["snapshot", "--name", "main", "--inline"])
+        .args(["snapshot", "--name", "main"])
         .env("XDG_STATE_HOME", state.path())
         .assert()
         .success()
@@ -360,7 +360,7 @@ fn snapshot_succeeds_while_nvim_is_blocked_at_hit_enter_prompt() {
         "snapshot blocked hit-enter prompt to appear",
         || {
             let output = run_neowright_with_timeout(
-                &["snapshot", "--name", "main", "--inline"],
+                &["snapshot", "--name", "main"],
                 state.path(),
                 std::time::Duration::from_secs(2),
             );
@@ -369,7 +369,7 @@ fn snapshot_succeeds_while_nvim_is_blocked_at_hit_enter_prompt() {
     );
 
     let output = run_neowright_with_timeout(
-        &["snapshot", "--name", "main", "--inline"],
+        &["snapshot", "--name", "main"],
         state.path(),
         std::time::Duration::from_secs(2),
     );
@@ -413,7 +413,7 @@ fn pty_keys_drive_real_session_and_are_visible_in_snapshot_when_nvim_exists() {
         "PTY text to appear in snapshot",
         || {
             let output = run_neowright_with_timeout(
-                &["snapshot", "--name", "main", "--inline"],
+                &["snapshot", "--name", "main"],
                 state.path(),
                 std::time::Duration::from_secs(2),
             );
@@ -422,7 +422,7 @@ fn pty_keys_drive_real_session_and_are_visible_in_snapshot_when_nvim_exists() {
     );
 
     neowright()
-        .args(["snapshot", "--name", "main", "--inline"])
+        .args(["snapshot", "--name", "main"])
         .env("XDG_STATE_HOME", state.path())
         .assert()
         .success()
@@ -640,7 +640,7 @@ fn pty_keys_dismiss_hit_enter_prompt_when_nvim_exists() {
         "PTY hit-enter prompt to appear",
         || {
             let output = run_neowright_with_timeout(
-                &["snapshot", "--name", "main", "--inline"],
+                &["snapshot", "--name", "main"],
                 state.path(),
                 std::time::Duration::from_secs(2),
             );

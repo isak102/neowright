@@ -17,17 +17,27 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    #[command(about = "Open a supervised Neovim session")]
     Open(OpenArgs),
+    #[command(about = "List active Neovim sessions")]
     List,
     #[command(hide = true, name = "__session-supervisor")]
     SessionSupervisor(SessionSupervisorArgs),
+    #[command(about = "Close one or more Neovim sessions")]
     Close(CloseArgs),
+    #[command(about = "Send keys to a Neovim session")]
     Keys(KeysArgs),
+    #[command(about = "Execute a Neovim command in a session")]
     Exec(ExecArgs),
+    #[command(about = "Evaluate Lua in a Neovim session")]
     Eval(EvalArgs),
+    #[command(about = "Wait until a Lua condition becomes true")]
     Wait(WaitArgs),
+    #[command(about = "Capture the visible terminal screen")]
     Snapshot(SnapshotArgs),
+    #[command(about = "Resize a Neovim session terminal")]
     Resize(ResizeArgs),
+    #[command(about = "Install Neowright agent skills")]
     Skills(SkillsArgs),
 }
 
@@ -60,12 +70,13 @@ pub struct SessionSupervisorArgs {
 
 #[derive(Debug, Args)]
 pub struct OpenArgs {
-    #[arg(long)]
+    #[arg(long, help = "Assign a human-readable name to the new session")]
     pub name: Option<String>,
 
-    #[arg(long, value_parser = parse_size)]
+    #[arg(long, value_parser = parse_size, help = "Set the terminal size as COLSxROWS")]
     pub size: Option<Size>,
 
+    #[arg(help = "Arguments passed through to nvim after --")]
     #[arg(last = true)]
     pub neovim_args: Vec<String>,
 }
@@ -80,9 +91,6 @@ pub struct TargetArgs {
 pub struct SnapshotArgs {
     #[command(flatten)]
     pub target: TargetSelector,
-
-    #[arg(long)]
-    pub inline: bool,
 }
 
 #[derive(Debug, Args)]
@@ -90,15 +98,17 @@ pub struct CloseArgs {
     #[command(flatten)]
     pub target: TargetSelector,
 
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Terminate the session process if graceful shutdown fails"
+    )]
     pub force: bool,
 
-    #[arg(long, conflicts_with_all = ["session", "name"])]
+    #[arg(long, conflicts_with_all = ["session", "name"], help = "Close every active session")]
     pub all: bool,
 }
 
 #[derive(Debug, Args)]
-#[command(about = "Send keys to a Session")]
 pub struct KeysArgs {
     #[command(flatten)]
     pub target: TargetSelector,
@@ -110,6 +120,7 @@ pub struct KeysArgs {
     )]
     pub pty: bool,
 
+    #[arg(help = "Keys to send, using Neovim key notation unless --pty is set")]
     pub keys: String,
 }
 
@@ -118,6 +129,7 @@ pub struct ExecArgs {
     #[command(flatten)]
     pub target: TargetSelector,
 
+    #[arg(help = "Ex command to execute, without the leading colon")]
     pub command: String,
 }
 
@@ -126,9 +138,10 @@ pub struct EvalArgs {
     #[command(flatten)]
     pub target: TargetSelector,
 
-    #[arg(long)]
+    #[arg(long, help = "Print the raw Lua result instead of JSON formatting")]
     pub raw: bool,
 
+    #[arg(help = "Lua expression or chunk to evaluate")]
     pub lua: String,
 }
 
@@ -137,12 +150,13 @@ pub struct WaitArgs {
     #[command(flatten)]
     pub target: TargetSelector,
 
-    #[arg(long, value_parser = parse_duration, default_value = "5s")]
+    #[arg(long, value_parser = parse_duration, default_value = "5s", help = "Maximum time to wait, for example 5s or 500ms")]
     pub timeout: Duration,
 
-    #[arg(long, value_parser = parse_duration, default_value = "100ms")]
+    #[arg(long, value_parser = parse_duration, default_value = "100ms", help = "Delay between condition checks, for example 100ms")]
     pub interval: Duration,
 
+    #[arg(help = "Lua condition evaluated until it returns true")]
     pub condition: String,
 }
 
@@ -151,7 +165,7 @@ pub struct ResizeArgs {
     #[command(flatten)]
     pub target: TargetSelector,
 
-    #[arg(value_parser = parse_size)]
+    #[arg(value_parser = parse_size, help = "New terminal size as COLSxROWS")]
     pub size: Size,
 }
 
@@ -163,27 +177,32 @@ pub struct SkillsArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum SkillsCommand {
+    #[command(about = "Install bundled Neowright agent skills")]
     Install(SkillsInstallArgs),
 }
 
 #[derive(Debug, Args)]
 pub struct SkillsInstallArgs {
-    #[arg(long, conflicts_with = "local")]
+    #[arg(
+        long,
+        conflicts_with = "local",
+        help = "Install skills into the global agent configuration"
+    )]
     pub global: bool,
 
-    #[arg(long)]
+    #[arg(long, help = "Install skills into this repository")]
     pub local: bool,
 
-    #[arg(long)]
+    #[arg(long, help = "Overwrite existing skill files")]
     pub force: bool,
 }
 
 #[derive(Debug, Args)]
 pub struct TargetSelector {
-    #[arg(long, conflicts_with = "name")]
+    #[arg(long, conflicts_with = "name", help = "Target a session by id")]
     pub session: Option<String>,
 
-    #[arg(long, conflicts_with = "session")]
+    #[arg(long, conflicts_with = "session", help = "Target a session by name")]
     pub name: Option<String>,
 }
 
