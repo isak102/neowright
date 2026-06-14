@@ -255,6 +255,53 @@ fn snapshot_writes_timestamped_plain_text_artifact_when_nvim_exists() {
 }
 
 #[test]
+fn snapshot_succeeds_while_nvim_is_blocked_at_hit_enter_prompt() {
+    if !nvim_is_available() {
+        return;
+    }
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args([
+            "open", "--name", "main", "--size", "60x12", "--", "-u", "NONE",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["keys", "--name", "main", ":echoerr 'snapshot blocked'<CR>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+
+    wait_until(std::time::Duration::from_secs(5), || {
+        let output = run_neowright_with_timeout(
+            &["snapshot", "--name", "main", "--inline"],
+            state.path(),
+            std::time::Duration::from_secs(2),
+        );
+        String::from_utf8_lossy(&output.stdout).contains("snapshot blocked")
+    });
+
+    let output = run_neowright_with_timeout(
+        &["snapshot", "--name", "main", "--inline"],
+        state.path(),
+        std::time::Duration::from_secs(2),
+    );
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("### Snapshot"));
+    assert!(stdout.contains("snapshot blocked"));
+}
+
+#[test]
 fn resize_updates_metadata_and_snapshot_dimensions_when_nvim_exists() {
     if !nvim_is_available() {
         return;

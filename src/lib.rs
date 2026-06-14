@@ -7,6 +7,7 @@ pub mod cli;
 mod commands;
 mod nvim;
 mod output;
+mod screen;
 mod session;
 
 pub fn run(args: impl IntoIterator<Item = OsString>) -> i32 {

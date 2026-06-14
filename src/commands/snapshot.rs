@@ -1,39 +1,21 @@
 use std::fs;
+use std::thread;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::cli::SnapshotArgs;
 use crate::commands::CommandOutput;
-use crate::nvim::{NvimClient, NvimValue};
+use crate::screen;
 use crate::session;
+
+const SCREEN_SETTLE_TIMEOUT: Duration = Duration::from_secs(1);
+const SCREEN_SETTLE_AGE: Duration = Duration::from_millis(100);
 
 pub fn run(args: SnapshotArgs) -> Result<CommandOutput, String> {
     let record = session::resolve_target(&args.target)?;
-    let mut client = NvimClient::connect(&record)?;
-    client.command("redraw!")?;
-
-    let lua = format!(
-        r#"
-local rows = {}
-local cols = {}
-local lines = {{}}
-for row = 1, rows do
-  local chars = {{}}
-  for col = 1, cols do
-    local char = vim.fn.screenstring(row, col)
-    if char == "" then
-      char = " "
-    end
-    chars[col] = char
-  end
-  lines[row] = table.concat(chars)
-end
-return table.concat(lines, "\n")
-"#,
-        record.size.rows, record.size.cols
-    );
-    let NvimValue::String(snapshot) = client.eval_lua(&lua)? else {
-        return Err("Neovim did not return Snapshot text".to_string());
-    };
+    let current_screen = screen::screen_path(&record);
+    let snapshot = read_settled_screen(&current_screen)?;
+    let snapshot = screen::normalize_text(&snapshot, record.size);
 
     let snapshot_dir = record.artifact_dir.join("snapshots");
     fs::create_dir_all(&snapshot_dir).map_err(|error| {
@@ -69,4 +51,43 @@ return table.concat(lines, "\n")
     }
 
     Ok(CommandOutput::Markdown(markdown))
+}
+
+fn read_settled_screen(path: &std::path::Path) -> Result<String, String> {
+    let start = SystemTime::now();
+    let mut last_contents = read_screen(path)?;
+
+    loop {
+        let metadata = fs::metadata(path).map_err(|error| {
+            format!(
+                "failed to stat Session Screen `{}`: {error}",
+                path.display()
+            )
+        })?;
+        let modified = metadata.modified().map_err(|error| {
+            format!(
+                "failed to read Session Screen modified time `{}`: {error}",
+                path.display()
+            )
+        })?;
+
+        if modified.elapsed().unwrap_or_default() >= SCREEN_SETTLE_AGE {
+            return read_screen(path);
+        }
+        if start.elapsed().unwrap_or_default() >= SCREEN_SETTLE_TIMEOUT {
+            return Ok(last_contents);
+        }
+
+        thread::sleep(Duration::from_millis(25));
+        last_contents = read_screen(path)?;
+    }
+}
+
+fn read_screen(path: &std::path::Path) -> Result<String, String> {
+    fs::read_to_string(path).map_err(|error| {
+        format!(
+            "failed to read Session Screen `{}`: {error}",
+            path.display()
+        )
+    })
 }

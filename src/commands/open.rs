@@ -4,6 +4,7 @@ use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -11,6 +12,7 @@ use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
 use crate::cli::{OpenArgs, SessionSupervisorArgs};
 use crate::nvim::{NvimClient, NvimValue};
+use crate::screen;
 use crate::session::{
     self, SessionRecord, SizeRecord, active_records, add_record, artifact_dir_for,
     ensure_artifact_dir, generate_id,
@@ -36,7 +38,7 @@ pub fn run(args: OpenArgs) -> Result<String, String> {
     let artifact_dir = artifact_dir_for(&cwd);
     ensure_artifact_dir(&artifact_dir)?;
 
-    let runtime_dir = artifact_dir.join("sessions").join(&id);
+    let runtime_dir = screen::runtime_dir(&artifact_dir, &id);
     fs::create_dir_all(&runtime_dir).map_err(|error| {
         format!(
             "failed to create Session runtime directory `{}`: {error}",
@@ -127,13 +129,33 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
         .map_err(|error| format!("failed to start nvim: {error}"))?;
     drop(pair.slave);
 
+    let size = SizeRecord::from(args.size);
+    let screen_path = screen::runtime_dir(&args.artifact_dir, &args.session).join("screen.txt");
+    let desired_size_path = screen::desired_size_path(&args.artifact_dir, &args.session);
+    let parser = Arc::new(Mutex::new(screen::parser_for(size)));
+    persist_current_screen(&parser, &screen_path, size)?;
+
     let mut reader = pair
         .master
         .try_clone_reader()
         .map_err(|error| format!("failed to read PTY output: {error}"))?;
+    let reader_parser = Arc::clone(&parser);
+    let reader_screen_path = screen_path.clone();
     thread::spawn(move || {
         let mut buffer = [0; 8192];
-        while reader.read(&mut buffer).is_ok() {}
+        while let Ok(bytes_read) = reader.read(&mut buffer) {
+            if bytes_read == 0 {
+                break;
+            }
+            let Ok(mut parser) = reader_parser.lock() else {
+                break;
+            };
+            parser.process(&buffer[..bytes_read]);
+            let size = parser_size(&parser);
+            let contents = screen::snapshot_text(&parser, size);
+            drop(parser);
+            let _ = screen::write_latest(&reader_screen_path, &contents);
+        }
     });
 
     wait_for_socket(&args.listen, READY_TIMEOUT)?;
@@ -144,7 +166,7 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
         name: args.name.clone(),
         cwd: args.cwd.clone(),
         artifact_dir: args.artifact_dir.clone(),
-        size: SizeRecord::from(args.size),
+        size,
         supervisor_pid: std::process::id(),
         child_pid: child.process_id(),
         listen: args.listen.clone(),
@@ -177,12 +199,76 @@ pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {
             break;
         }
 
+        if let Some(desired_size) = read_desired_size(&desired_size_path)?
+            && desired_size != current_parser_size(&parser)?
+        {
+            pair.master
+                .resize(PtySize {
+                    rows: desired_size.rows,
+                    cols: desired_size.cols,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                })
+                .map_err(|error| format!("failed to resize PTY: {error}"))?;
+            let mut parser = parser
+                .lock()
+                .map_err(|_| "failed to lock Screen parser".to_string())?;
+            parser
+                .screen_mut()
+                .set_size(desired_size.rows, desired_size.cols);
+            let contents = screen::snapshot_text(&parser, desired_size);
+            drop(parser);
+            screen::write_latest(&screen_path, &contents)?;
+        }
+
         thread::sleep(Duration::from_millis(50));
     }
 
     let _ = session::remove_record(&args.session);
     let _ = fs::remove_file(&args.listen);
     Ok("Session supervisor exited.".to_string())
+}
+
+fn persist_current_screen(
+    parser: &Arc<Mutex<vt100::Parser>>,
+    path: &std::path::Path,
+    size: SizeRecord,
+) -> Result<(), String> {
+    let parser = parser
+        .lock()
+        .map_err(|_| "failed to lock Screen parser".to_string())?;
+    screen::write_latest(path, &screen::snapshot_text(&parser, size))
+}
+
+fn parser_size(parser: &vt100::Parser) -> SizeRecord {
+    let (rows, cols) = parser.screen().size();
+    SizeRecord { cols, rows }
+}
+
+fn current_parser_size(parser: &Arc<Mutex<vt100::Parser>>) -> Result<SizeRecord, String> {
+    let parser = parser
+        .lock()
+        .map_err(|_| "failed to lock Screen parser".to_string())?;
+    Ok(parser_size(&parser))
+}
+
+fn read_desired_size(path: &std::path::Path) -> Result<Option<SizeRecord>, String> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let contents = fs::read_to_string(path).map_err(|error| {
+        format!(
+            "failed to read desired Session size `{}`: {error}",
+            path.display()
+        )
+    })?;
+    serde_json::from_str(&contents).map(Some).map_err(|error| {
+        format!(
+            "failed to parse desired Session size `{}`: {error}",
+            path.display()
+        )
+    })
 }
 
 fn install_supervisor_signal_handlers() {
