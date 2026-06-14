@@ -9,6 +9,7 @@ mod nvim;
 mod output;
 mod screen;
 mod session;
+mod session_supervisor;
 
 pub fn run(args: impl IntoIterator<Item = OsString>) -> i32 {
     run_with_io(args, &mut io::stdout(), &mut io::stderr())
