@@ -30,6 +30,62 @@ fn require_nvim() {
     );
 }
 
+fn assert_contains(actual: &str, expected: &str) {
+    assert!(
+        actual.contains(expected),
+        "expected text to contain {expected:?}\nactual:\n{actual}"
+    );
+}
+
+fn assert_not_contains(actual: &str, unexpected: &str) {
+    assert!(
+        !actual.contains(unexpected),
+        "expected text not to contain {unexpected:?}\nactual:\n{actual}"
+    );
+}
+
+fn assert_starts_with(actual: &str, expected_prefix: &str) {
+    assert!(
+        actual.starts_with(expected_prefix),
+        "expected text to start with {expected_prefix:?}\nactual: {actual:?}"
+    );
+}
+
+fn assert_ends_with(actual: &str, expected_suffix: &str) {
+    assert!(
+        actual.ends_with(expected_suffix),
+        "expected text to end with {expected_suffix:?}\nactual: {actual:?}"
+    );
+}
+
+fn assert_is_dir(path: impl AsRef<std::path::Path>) {
+    let path = path.as_ref();
+    assert!(
+        path.is_dir(),
+        "expected path to be a directory: {}",
+        path.display()
+    );
+}
+
+fn assert_not_exists(path: impl AsRef<std::path::Path>) {
+    let path = path.as_ref();
+    assert!(
+        !path.exists(),
+        "expected path not to exist: {}",
+        path.display()
+    );
+}
+
+fn assert_output_success(output: &std::process::Output, context: &str) {
+    assert!(
+        output.status.success(),
+        "{context}\nstatus: {}\nstdout:\n{}\nstderr:\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn unknown_command_returns_markdown_error() {
     neowright()
@@ -254,13 +310,13 @@ fn snapshot_writes_timestamped_plain_text_artifact_when_nvim_exists() {
         .file_name()
         .and_then(std::ffi::OsStr::to_str)
         .expect("snapshot filename");
-    assert!(filename.starts_with("snapshot-"));
-    assert!(filename.ends_with(".txt"));
-    assert!(!snapshot_dir.join("snapshot-latest.txt").exists());
+    assert_starts_with(filename, "snapshot-");
+    assert_ends_with(filename, ".txt");
+    assert_not_exists(snapshot_dir.join("snapshot-latest.txt"));
 
     let contents = std::fs::read_to_string(&snapshots[0]).expect("snapshot contents");
-    assert!(contents.contains("hello"));
-    assert!(!contents.contains('\u{1b}'));
+    assert_contains(&contents, "hello");
+    assert_not_contains(&contents, "\u{1b}");
     assert_snapshot_dimensions(&contents, 40, 10);
 
     neowright()
@@ -299,24 +355,31 @@ fn snapshot_succeeds_while_nvim_is_blocked_at_hit_enter_prompt() {
         .assert()
         .success();
 
-    wait_until(std::time::Duration::from_secs(5), || {
-        let output = run_neowright_with_timeout(
-            &["snapshot", "--name", "main", "--inline"],
-            state.path(),
-            std::time::Duration::from_secs(2),
-        );
-        String::from_utf8_lossy(&output.stdout).contains("snapshot blocked")
-    });
+    wait_until(
+        std::time::Duration::from_secs(5),
+        "snapshot blocked hit-enter prompt to appear",
+        || {
+            let output = run_neowright_with_timeout(
+                &["snapshot", "--name", "main", "--inline"],
+                state.path(),
+                std::time::Duration::from_secs(2),
+            );
+            String::from_utf8_lossy(&output.stdout).contains("snapshot blocked")
+        },
+    );
 
     let output = run_neowright_with_timeout(
         &["snapshot", "--name", "main", "--inline"],
         state.path(),
         std::time::Duration::from_secs(2),
     );
-    assert!(output.status.success());
+    assert_output_success(
+        &output,
+        "snapshot should succeed while Neovim is at hit-enter prompt",
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("### Snapshot"));
-    assert!(stdout.contains("snapshot blocked"));
+    assert_contains(&stdout, "### Snapshot");
+    assert_contains(&stdout, "snapshot blocked");
 }
 
 #[test]
@@ -345,14 +408,18 @@ fn pty_keys_drive_real_session_and_are_visible_in_snapshot_when_nvim_exists() {
         .success()
         .stdout(predicate::str::contains("### Sent PTY Keys"));
 
-    wait_until(std::time::Duration::from_secs(5), || {
-        let output = run_neowright_with_timeout(
-            &["snapshot", "--name", "main", "--inline"],
-            state.path(),
-            std::time::Duration::from_secs(2),
-        );
-        String::from_utf8_lossy(&output.stdout).contains("hello from pty")
-    });
+    wait_until(
+        std::time::Duration::from_secs(5),
+        "PTY text to appear in snapshot",
+        || {
+            let output = run_neowright_with_timeout(
+                &["snapshot", "--name", "main", "--inline"],
+                state.path(),
+                std::time::Duration::from_secs(2),
+            );
+            String::from_utf8_lossy(&output.stdout).contains("hello from pty")
+        },
+    );
 
     neowright()
         .args(["snapshot", "--name", "main", "--inline"])
@@ -568,14 +635,18 @@ fn pty_keys_dismiss_hit_enter_prompt_when_nvim_exists() {
         .assert()
         .success();
 
-    wait_until(std::time::Duration::from_secs(5), || {
-        let output = run_neowright_with_timeout(
-            &["snapshot", "--name", "main", "--inline"],
-            state.path(),
-            std::time::Duration::from_secs(2),
-        );
-        String::from_utf8_lossy(&output.stdout).contains("pty blocked")
-    });
+    wait_until(
+        std::time::Duration::from_secs(5),
+        "PTY hit-enter prompt to appear",
+        || {
+            let output = run_neowright_with_timeout(
+                &["snapshot", "--name", "main", "--inline"],
+                state.path(),
+                std::time::Duration::from_secs(2),
+            );
+            String::from_utf8_lossy(&output.stdout).contains("pty blocked")
+        },
+    );
 
     neowright()
         .args(["keys", "--name", "main", "--pty", "<CR>"])
@@ -778,10 +849,10 @@ fn close_does_not_hang_when_shutdown_autocmd_blocks_nvim_when_nvim_exists() {
         state.path(),
         std::time::Duration::from_secs(5),
     );
-    assert!(output.status.success(), "close should succeed: {output:?}");
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains("### Closed Sessions"),
-        "close should report closed sessions: {output:?}"
+    assert_output_success(&output, "close should succeed");
+    assert_contains(
+        &String::from_utf8_lossy(&output.stdout),
+        "### Closed Sessions",
     );
     assert_eq!(registry_records(state.path()), Vec::<Value>::new());
 }
@@ -813,15 +884,23 @@ fn supervisor_sigterm_terminates_child_nvim_when_nvim_exists() {
         .and_then(Value::as_u64)
         .expect("child pid");
 
-    assert!(process_exists(child_pid));
+    assert!(
+        process_exists(child_pid),
+        "expected child process {child_pid} to exist"
+    );
     unsafe {
         libc::kill(supervisor_pid as libc::pid_t, libc::SIGTERM);
     }
 
-    wait_until(std::time::Duration::from_secs(5), || {
-        !process_exists(child_pid)
-    });
-    assert!(!process_exists(child_pid));
+    wait_until(
+        std::time::Duration::from_secs(5),
+        "child Neovim process to exit after supervisor SIGTERM",
+        || !process_exists(child_pid),
+    );
+    assert!(
+        !process_exists(child_pid),
+        "expected child process {child_pid} not to exist"
+    );
 }
 
 #[test]
@@ -868,7 +947,10 @@ fn open_uses_default_size_and_writes_registry_when_nvim_exists() {
         record.pointer("/size/rows").and_then(Value::as_u64),
         Some(70)
     );
-    assert!(record.get("child_pid").and_then(Value::as_u64).is_some());
+    assert!(
+        record.get("child_pid").and_then(Value::as_u64).is_some(),
+        "expected registry record to include child_pid: {record:#?}"
+    );
     assert_eq!(
         std::path::Path::new(
             record
@@ -884,12 +966,12 @@ fn open_uses_default_size_and_writes_registry_when_nvim_exists() {
             .canonicalize()
             .expect("artifact dir canonicalizes")
     );
-    assert!(
+    assert_starts_with(
         record
             .get("listen")
             .and_then(Value::as_str)
-            .expect("listen path")
-            .starts_with("/tmp/neowright-")
+            .expect("listen path"),
+        "/tmp/neowright-",
     );
 }
 
@@ -1172,7 +1254,7 @@ fn eval_exec_keys_and_wait_drive_real_session_when_nvim_exists() {
         .success()
         .stdout(predicate::str::is_match("^2\n$").unwrap());
 
-    assert!(!project.path().join(".neowright/snapshots").exists());
+    assert_not_exists(project.path().join(".neowright/snapshots"));
 
     neowright()
         .args([
@@ -1287,10 +1369,14 @@ fn canonical_mvp_agent_debugging_loop_when_nvim_exists() {
         Some(12)
     );
     let screen_path = session_screen_path(&records[0]);
-    wait_until(std::time::Duration::from_secs(5), || {
-        std::fs::read_to_string(&screen_path)
-            .is_ok_and(|contents| contents.contains("hello from keys"))
-    });
+    wait_until(
+        std::time::Duration::from_secs(5),
+        "resized session screen to contain typed keys",
+        || {
+            std::fs::read_to_string(&screen_path)
+                .is_ok_and(|contents| contents.contains("hello from keys"))
+        },
+    );
 
     neowright()
         .args(["snapshot", "--name", "demo"])
@@ -1308,12 +1394,12 @@ fn canonical_mvp_agent_debugging_loop_when_nvim_exists() {
         .file_name()
         .and_then(std::ffi::OsStr::to_str)
         .expect("snapshot filename");
-    assert!(filename.starts_with("snapshot-"));
-    assert!(filename.ends_with(".txt"));
-    assert!(!snapshot_dir.join("snapshot-latest.txt").exists());
+    assert_starts_with(filename, "snapshot-");
+    assert_ends_with(filename, ".txt");
+    assert_not_exists(snapshot_dir.join("snapshot-latest.txt"));
     let contents = std::fs::read_to_string(&snapshots[0]).expect("snapshot contents");
-    assert!(contents.contains("hello from keys"));
-    assert!(!contents.contains('\u{1b}'));
+    assert_contains(&contents, "hello from keys");
+    assert_not_contains(&contents, "\u{1b}");
     assert_snapshot_dimensions(&contents, 50, 12);
 
     neowright()
@@ -1390,7 +1476,7 @@ fn skills_install_defaults_to_global_skill_directory() {
         )));
 
     assert_neowright_skill_installed(&skill_path);
-    assert!(!project.path().join(".agents").exists());
+    assert_not_exists(project.path().join(".agents"));
 }
 
 #[test]
@@ -1413,7 +1499,7 @@ fn skills_install_global_uses_home_agents_directory() {
         )));
 
     assert_neowright_skill_installed(&skill_path);
-    assert!(!project.path().join(".agents").exists());
+    assert_not_exists(project.path().join(".agents"));
 }
 
 #[test]
@@ -1433,7 +1519,7 @@ fn skills_install_local_uses_project_agents_directory() {
         .stdout(predicate::str::contains(".agents/skills/neowright`"));
 
     assert_neowright_skill_installed(&skill_path);
-    assert!(!home.path().join(".agents").exists());
+    assert_not_exists(home.path().join(".agents"));
 }
 
 #[test]
@@ -1476,7 +1562,7 @@ fn skills_install_force_overwrites_existing_skill() {
         .stdout(predicate::str::contains("Scope: `global`"));
 
     assert_neowright_skill_installed(&skill_path);
-    assert!(!skill_path.join("CUSTOM.md").exists());
+    assert_not_exists(skill_path.join("CUSTOM.md"));
 }
 
 fn registry_records(state_home: &std::path::Path) -> Vec<Value> {
@@ -1520,9 +1606,18 @@ fn session_screen_path(record: &Value) -> std::path::PathBuf {
 
 fn assert_snapshot_dimensions(contents: &str, cols: usize, rows: usize) {
     let lines = contents.split('\n').collect::<Vec<_>>();
-    assert_eq!(lines.len(), rows);
-    for line in lines {
-        assert_eq!(line.chars().count(), cols, "snapshot line has wrong width");
+    assert_eq!(
+        lines.len(),
+        rows,
+        "snapshot has wrong row count\nexpected rows: {rows}\nactual rows: {}\nsnapshot:\n{contents}",
+        lines.len()
+    );
+    for (index, line) in lines.iter().enumerate() {
+        let width = line.chars().count();
+        assert_eq!(
+            width, cols,
+            "snapshot line {index} has wrong width\nexpected cols: {cols}\nactual cols: {width}\nline: {line:?}\nsnapshot:\n{contents}"
+        );
     }
 }
 
@@ -1531,18 +1626,18 @@ fn process_exists(pid: u64) -> bool {
 }
 
 fn assert_neowright_skill_installed(skill_path: &std::path::Path) {
-    assert!(skill_path.is_dir(), "skill path should be a directory");
+    assert_is_dir(skill_path);
     let contents = std::fs::read_to_string(skill_path.join("SKILL.md")).expect("skill contents");
-    assert!(contents.contains("name: neowright"));
-    assert!(contents.contains("standalone CLI harness"));
-    assert!(contents.contains("neowright open"));
-    assert!(contents.contains("neowright keys"));
-    assert!(contents.contains("neowright wait"));
-    assert!(contents.contains("neowright snapshot"));
-    assert!(contents.contains("neowright close"));
-    assert!(!contents.contains("-- --clean"));
-    assert!(!contents.contains("test fixtures"));
-    assert!(!contents.contains("force-close"));
+    assert_contains(&contents, "name: neowright");
+    assert_contains(&contents, "standalone CLI harness");
+    assert_contains(&contents, "neowright open");
+    assert_contains(&contents, "neowright keys");
+    assert_contains(&contents, "neowright wait");
+    assert_contains(&contents, "neowright snapshot");
+    assert_contains(&contents, "neowright close");
+    assert_not_contains(&contents, "-- --clean");
+    assert_not_contains(&contents, "test fixtures");
+    assert_not_contains(&contents, "force-close");
 }
 
 fn run_neowright_with_timeout(
@@ -1582,7 +1677,11 @@ fn run_neowright_with_timeout(
     );
 }
 
-fn wait_until(timeout: std::time::Duration, mut condition: impl FnMut() -> bool) {
+fn wait_until(
+    timeout: std::time::Duration,
+    description: &str,
+    mut condition: impl FnMut() -> bool,
+) {
     let start = std::time::Instant::now();
     while start.elapsed() < timeout {
         if condition() {
@@ -1590,6 +1689,8 @@ fn wait_until(timeout: std::time::Duration, mut condition: impl FnMut() -> bool)
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
+
+    panic!("timed out after {timeout:?} waiting for {description}");
 }
 
 fn cleanup_supervisors(state_home: &std::path::Path) {

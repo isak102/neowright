@@ -81,6 +81,61 @@ fn snapshot_inline(state: &std::path::Path, name: &str) -> String {
     String::from_utf8(output).expect("utf8 stdout")
 }
 
+fn assert_contains(actual: &str, expected: &str) {
+    assert!(
+        actual.contains(expected),
+        "expected text to contain {expected:?}\nactual:\n{actual}"
+    );
+}
+
+fn assert_not_contains(actual: &str, unexpected: &str) {
+    assert!(
+        !actual.contains(unexpected),
+        "expected text not to contain {unexpected:?}\nactual:\n{actual}"
+    );
+}
+
+fn assert_contains_any(actual: &str, expected: &[&str]) {
+    assert!(
+        expected.iter().any(|value| actual.contains(value)),
+        "expected text to contain one of {expected:?}\nactual:\n{actual}"
+    );
+}
+
+fn assert_is_dir(path: impl AsRef<std::path::Path>) {
+    let path = path.as_ref();
+    assert!(
+        path.is_dir(),
+        "expected path to be a directory: {}",
+        path.display()
+    );
+}
+
+fn assert_not_exists(path: impl AsRef<std::path::Path>) {
+    let path = path.as_ref();
+    assert!(
+        !path.exists(),
+        "expected path not to exist: {}",
+        path.display()
+    );
+}
+
+fn wait_for_snapshot_contains(state: &std::path::Path, name: &str, expected: &str) -> String {
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(3);
+    let mut snapshot = snapshot_inline(state, name);
+
+    while start.elapsed() < timeout {
+        if snapshot.contains(expected) {
+            return snapshot;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        snapshot = snapshot_inline(state, name);
+    }
+
+    panic!("snapshot for {name:?} did not contain {expected:?}\n{snapshot}");
+}
+
 fn assert_snapshot_dimensions(contents: &str, cols: usize, rows: usize) {
     let body = contents
         .split("```text\n")
@@ -88,12 +143,17 @@ fn assert_snapshot_dimensions(contents: &str, cols: usize, rows: usize) {
         .and_then(|contents| contents.split("\n```").next())
         .expect("inline snapshot text block");
     let lines = body.split('\n').collect::<Vec<_>>();
-    assert_eq!(lines.len(), rows);
-    for line in lines {
+    assert_eq!(
+        lines.len(),
+        rows,
+        "snapshot has wrong row count\nexpected rows: {rows}\nactual rows: {}\nsnapshot:\n{contents}",
+        lines.len()
+    );
+    for (index, line) in lines.iter().enumerate() {
+        let width = UnicodeWidthStr::width(*line);
         assert_eq!(
-            UnicodeWidthStr::width(line),
-            cols,
-            "snapshot line has wrong width"
+            width, cols,
+            "snapshot line {index} has wrong width\nexpected cols: {cols}\nactual cols: {width}\nline: {line:?}\nsnapshot:\n{contents}"
         );
     }
 }
@@ -140,7 +200,7 @@ fn agent_can_edit_save_and_inspect_a_real_project_file() {
         std::fs::read_to_string(&file).expect("saved file"),
         "alpha\nagent-added line\n"
     );
-    assert!(snapshot_inline(state.path(), "edit").contains("agent-added line"));
+    assert_contains(&snapshot_inline(state.path(), "edit"), "agent-added line");
 }
 
 #[test]
@@ -181,8 +241,8 @@ fn agent_can_inspect_a_deterministic_floating_window() {
         "{\"height\":3,\"relative\":\"editor\",\"width\":24}\n"
     );
     let snapshot = snapshot_inline(state.path(), "float");
-    assert!(snapshot.contains("NEOWRIGHT FLOAT"));
-    assert!(snapshot.contains("stable content"));
+    assert_contains(&snapshot, "NEOWRIGHT FLOAT");
+    assert_contains(&snapshot, "stable content");
 }
 
 #[test]
@@ -224,7 +284,10 @@ fn agent_can_debug_diagnostics_without_lsp_or_plugins() {
         diagnostic,
         "{\"col\":13,\"lnum\":0,\"message\":\"expected expression after equals\",\"severity\":1}\n"
     );
-    assert!(snapshot_inline(state.path(), "diag").contains("expected expression after equals"));
+    assert_contains(
+        &snapshot_inline(state.path(), "diag"),
+        "expected expression after equals",
+    );
 }
 
 #[test]
@@ -255,8 +318,8 @@ fn global_registry_commands_can_run_from_another_directory_but_artifacts_stay_wi
         .success()
         .stdout(predicate::str::contains("### Snapshot"));
 
-    assert!(project_a.path().join(".neowright/snapshots").is_dir());
-    assert!(!project_b.path().join(".neowright/snapshots").exists());
+    assert_is_dir(project_a.path().join(".neowright/snapshots"));
+    assert_not_exists(project_b.path().join(".neowright/snapshots"));
 
     let records = registry_records(state.path());
     assert_eq!(records.len(), 1);
@@ -621,7 +684,7 @@ fn quickfix_search_workflow_is_visible_and_inspectable() {
         "2\n"
     );
     let snapshot = snapshot_inline(state.path(), "quickfix");
-    assert!(snapshot.contains("first.txt") || snapshot.contains("second.txt"));
+    assert_contains_any(&snapshot, &["first.txt", "second.txt"]);
 }
 
 #[test]
@@ -651,7 +714,10 @@ fn terminal_buffer_output_can_be_captured() {
         "return vim.bo.buftype == 'terminal' and table.concat(vim.api.nvim_buf_get_lines(0,0,-1,false),'\\n'):find('neowright%-terminal%-ok') ~= nil",
     );
 
-    assert!(snapshot_inline(state.path(), "terminal").contains("neowright-terminal-ok"));
+    assert_contains(
+        &snapshot_inline(state.path(), "terminal"),
+        "neowright-terminal-ok",
+    );
 }
 
 #[test]
@@ -731,9 +797,8 @@ fn unicode_wide_characters_survive_the_real_snapshot_path() {
         .env("XDG_STATE_HOME", state.path())
         .assert()
         .success();
-    let snapshot = snapshot_inline(state.path(), "unicode");
-    assert!(snapshot.contains("ascii 表 text"));
-    assert!(!snapshot.contains("\u{1b}"));
+    let snapshot = wait_for_snapshot_contains(state.path(), "unicode", "ascii 表 text");
+    assert_not_contains(&snapshot, "\u{1b}");
     assert_snapshot_dimensions(&snapshot, 80, 20);
 }
 
@@ -777,8 +842,8 @@ fn session_can_be_targeted_by_id_from_another_directory() {
         .current_dir(project_b.path())
         .assert()
         .success();
-    assert!(project_a.path().join(".neowright/snapshots").is_dir());
-    assert!(!project_b.path().join(".neowright/snapshots").exists());
+    assert_is_dir(project_a.path().join(".neowright/snapshots"));
+    assert_not_exists(project_b.path().join(".neowright/snapshots"));
 }
 
 #[test]
@@ -837,7 +902,7 @@ fn pty_keys_dismiss_hit_enter_prompt_and_restore_rpc() {
         .env("XDG_STATE_HOME", state.path())
         .assert()
         .success();
-    assert!(snapshot_inline(state.path(), "pty-hit-enter").contains("blocked by hit-enter"));
+    wait_for_snapshot_contains(state.path(), "pty-hit-enter", "blocked by hit-enter");
     neowright()
         .args(["keys", "--name", "pty-hit-enter", "--pty", "<CR>"])
         .env("XDG_STATE_HOME", state.path())
@@ -984,7 +1049,7 @@ fn pty_keys_still_work_after_resize() {
         "return vim.api.nvim_get_current_line() == 'pty after resize'",
     );
     let snapshot = snapshot_inline(state.path(), "pty-resize");
-    assert!(snapshot.contains("pty after resize"));
+    assert_contains(&snapshot, "pty after resize");
     assert_snapshot_dimensions(&snapshot, 50, 12);
 }
 
