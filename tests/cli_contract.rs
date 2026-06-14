@@ -17,13 +17,17 @@ fn neowright() -> Command {
     Command::cargo_bin("neowright").expect("binary exists")
 }
 
-fn nvim_is_available() -> bool {
-    std::process::Command::new("nvim")
+fn require_nvim() {
+    let status = std::process::Command::new("nvim")
         .arg("--version")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok()
+        .status();
+
+    assert!(
+        status.is_ok_and(|status| status.success()),
+        "nvim must be installed and runnable for Neowright integration tests"
+    );
 }
 
 #[test]
@@ -164,9 +168,7 @@ fn list_reports_empty_registry() {
 
 #[test]
 fn open_starts_session_and_list_shows_it_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -207,9 +209,7 @@ fn open_starts_session_and_list_shows_it_when_nvim_exists() {
 
 #[test]
 fn snapshot_writes_timestamped_plain_text_artifact_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -270,9 +270,7 @@ fn snapshot_writes_timestamped_plain_text_artifact_when_nvim_exists() {
 
 #[test]
 fn snapshot_succeeds_while_nvim_is_blocked_at_hit_enter_prompt() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -317,9 +315,7 @@ fn snapshot_succeeds_while_nvim_is_blocked_at_hit_enter_prompt() {
 
 #[test]
 fn pty_keys_drive_real_session_and_are_visible_in_snapshot_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -370,9 +366,7 @@ fn pty_keys_drive_real_session_and_are_visible_in_snapshot_when_nvim_exists() {
 
 #[test]
 fn pty_keys_translate_terminal_input_inside_neovim_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -504,9 +498,7 @@ fn pty_keys_translate_terminal_input_inside_neovim_when_nvim_exists() {
 
 #[test]
 fn pty_keys_reject_unsupported_notation_without_sending_bytes_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -547,9 +539,7 @@ fn pty_keys_reject_unsupported_notation_without_sending_bytes_when_nvim_exists()
 
 #[test]
 fn pty_keys_dismiss_hit_enter_prompt_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -597,9 +587,7 @@ fn pty_keys_dismiss_hit_enter_prompt_when_nvim_exists() {
 
 #[test]
 fn resize_updates_metadata_and_snapshot_dimensions_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -653,9 +641,7 @@ fn resize_updates_metadata_and_snapshot_dimensions_when_nvim_exists() {
 
 #[test]
 fn close_handles_graceful_force_all_and_partial_failures_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -761,9 +747,7 @@ fn close_handles_graceful_force_all_and_partial_failures_when_nvim_exists() {
 
 #[test]
 fn close_does_not_hang_when_shutdown_autocmd_blocks_nvim_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -798,9 +782,7 @@ fn close_does_not_hang_when_shutdown_autocmd_blocks_nvim_when_nvim_exists() {
 
 #[test]
 fn supervisor_sigterm_terminates_child_nvim_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -838,9 +820,7 @@ fn supervisor_sigterm_terminates_child_nvim_when_nvim_exists() {
 
 #[test]
 fn open_uses_default_size_and_writes_registry_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -909,9 +889,7 @@ fn open_uses_default_size_and_writes_registry_when_nvim_exists() {
 
 #[test]
 fn open_rejects_duplicate_session_name_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -939,9 +917,7 @@ fn open_rejects_duplicate_session_name_when_nvim_exists() {
 
 #[test]
 fn omitted_target_fails_when_multiple_sessions_are_active_and_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -1007,9 +983,7 @@ fn list_cleans_stale_registry_entries() {
 
 #[test]
 fn passthrough_args_are_forwarded_after_owned_listen_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -1040,9 +1014,7 @@ fn passthrough_args_are_forwarded_after_owned_listen_when_nvim_exists() {
 
 #[test]
 fn target_resolution_supports_session_id_and_name_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -1075,9 +1047,7 @@ fn target_resolution_supports_session_id_and_name_when_nvim_exists() {
 
 #[test]
 fn eval_exec_keys_and_wait_drive_real_session_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -1215,9 +1185,7 @@ fn eval_exec_keys_and_wait_drive_real_session_when_nvim_exists() {
 
 #[test]
 fn canonical_mvp_agent_debugging_loop_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
@@ -1360,9 +1328,7 @@ fn canonical_mvp_agent_debugging_loop_when_nvim_exists() {
 
 #[test]
 fn wait_timeout_reports_last_result_when_nvim_exists() {
-    if !nvim_is_available() {
-        return;
-    }
+    require_nvim();
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
