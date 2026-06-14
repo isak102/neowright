@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::io::ErrorKind;
 use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -10,9 +11,12 @@ use rmpv::encode::write_value;
 
 use crate::session::SessionRecord;
 
+pub(crate) const RPC_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub struct NvimClient {
     stream: UnixStream,
     next_request_id: i64,
+    read_timeout: Duration,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -32,17 +36,7 @@ impl NvimClient {
     }
 
     pub(crate) fn connect_path(path: &Path) -> Result<Self, String> {
-        let stream = UnixStream::connect(path).map_err(|error| {
-            format!(
-                "failed to connect to Neovim control socket `{}`: {error}",
-                path.display()
-            )
-        })?;
-
-        Ok(Self {
-            stream,
-            next_request_id: 1,
-        })
+        Self::connect_path_with_read_timeout(path, RPC_TIMEOUT)
     }
 
     pub(crate) fn connect_path_with_read_timeout(
@@ -65,6 +59,7 @@ impl NvimClient {
         Ok(Self {
             stream,
             next_request_id: 1,
+            read_timeout: timeout,
         })
     }
 
@@ -135,8 +130,11 @@ impl NvimClient {
             .map_err(|error| format!("failed to flush Neovim RPC request `{method}`: {error}"))?;
 
         loop {
-            let response = read_value(&mut self.stream).map_err(|error| {
-                format!("failed to read Neovim RPC response for `{method}`: {error}")
+            let response = read_value(&mut self.stream).map_err(|error| match error.kind() {
+                ErrorKind::TimedOut | ErrorKind::WouldBlock => {
+                    rpc_timeout_error(method, self.read_timeout)
+                }
+                _ => format!("failed to read Neovim RPC response for `{method}`: {error}"),
             })?;
             let Value::Array(items) = response else {
                 continue;
@@ -171,6 +169,12 @@ impl NvimClient {
             .flush()
             .map_err(|error| format!("failed to flush Neovim RPC notification `{method}`: {error}"))
     }
+}
+
+fn rpc_timeout_error(method: &str, timeout: Duration) -> String {
+    format!(
+        "Neovim RPC request `{method}` timed out after {timeout:?}.\n\nBefore sending more input or commands, inspect the current screen first:\n\n  neowright snapshot\n\nNeovim may be waiting for modal input, blocked at a hit-enter prompt, or busy running Lua/Vimscript/plugin code. After checking the snapshot, recover with PTY input if appropriate:\n\n  neowright keys --pty \"<CR>\"\n  neowright keys --pty \"<Esc>\"\n  neowright keys --pty \"<C-c>\""
+    )
 }
 
 impl NvimValue {
@@ -283,5 +287,50 @@ impl NvimValue {
                     .collect(),
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::net::UnixListener;
+    use std::thread;
+
+    use super::*;
+
+    #[test]
+    fn request_timeout_tells_agent_to_snapshot_before_recovery() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let socket = dir.path().join("nvim.sock");
+        let listener = UnixListener::bind(&socket).expect("bind socket");
+        let server = thread::spawn(move || {
+            let (_stream, _addr) = listener.accept().expect("accept connection");
+            thread::sleep(Duration::from_millis(100));
+        });
+
+        let mut client =
+            NvimClient::connect_path_with_read_timeout(&socket, Duration::from_millis(10))
+                .expect("connect client");
+        let error = client.eval_lua("return true").expect_err("request timeout");
+
+        assert!(
+            error.contains("Neovim RPC request `nvim_exec_lua` timed out after 10ms"),
+            "unexpected error: {error}"
+        );
+        assert!(
+            error.contains(
+                "Before sending more input or commands, inspect the current screen first:"
+            ),
+            "unexpected error: {error}"
+        );
+        assert!(
+            error.contains("neowright snapshot"),
+            "unexpected error: {error}"
+        );
+        assert!(
+            error.contains("neowright keys --pty \"<CR>\""),
+            "unexpected error: {error}"
+        );
+
+        server.join().expect("server thread");
     }
 }
