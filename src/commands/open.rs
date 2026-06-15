@@ -1,8 +1,9 @@
 use std::fs::{self, File};
 use std::process::{Command, Stdio};
 
+use crate::attached_ui;
 use crate::cli::{OpenArgs, SessionSupervisorArgs};
-use crate::commands::{CommandFailure, launch_for_record, launch_summary, validate_launch_options};
+use crate::commands::CommandFailure;
 use crate::output;
 use crate::session::{
     SessionRecord, SessionRegistry, SizeRecord, artifact_dir_for, ensure_artifact_dir, generate_id,
@@ -12,7 +13,7 @@ use crate::session_supervisor;
 
 pub fn run(args: OpenArgs) -> Result<String, CommandFailure> {
     if args.headed {
-        validate_launch_options(args.terminal_cmd.as_deref(), args.terminal_preset)?;
+        attached_ui::validate_launch_options(args.terminal_cmd.as_deref(), args.terminal_preset)?;
     }
 
     let cwd = std::env::current_dir().map_err(|error| format!("failed to resolve cwd: {error}"))?;
@@ -105,18 +106,24 @@ pub fn run(args: OpenArgs) -> Result<String, CommandFailure> {
 
     let opened = output::opened_session(&record);
     if args.headed {
-        let launch =
-            match launch_for_record(&record, args.terminal_cmd.as_deref(), args.terminal_preset) {
-                Ok(launch) => launch,
-                Err(error) => {
-                    return Err(CommandFailure {
-                        message: format!("Headed UI launch failed.\n\n{error}"),
-                        stdout: Some(crate::output::status_document(&opened)),
-                    });
-                }
-            };
+        let launch = match attached_ui::launch_for_record(
+            &record,
+            args.terminal_cmd.as_deref(),
+            args.terminal_preset,
+        ) {
+            Ok(launch) => launch,
+            Err(error) => {
+                return Err(CommandFailure {
+                    message: format!("Headed UI launch failed.\n\n{error}"),
+                    stdout: Some(crate::output::status_document(&opened)),
+                });
+            }
+        };
 
-        return Ok(format!("{opened}\n\n{}", launch_summary(&launch)));
+        return Ok(format!(
+            "{opened}\n\n{}",
+            attached_ui::launch_summary(&launch)
+        ));
     }
 
     Ok(opened)

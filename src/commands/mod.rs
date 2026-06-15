@@ -56,5 +56,3 @@ pub fn dispatch(command: Command) -> Result<CommandOutput, CommandFailure> {
         Command::Skills(args) => skills::run(args).map(Into::into).map_err(Into::into),
     }
 }
-
-pub(crate) use attach::{launch_for_record, launch_summary, validate_launch_options};

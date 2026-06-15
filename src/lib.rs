@@ -3,6 +3,7 @@ use std::io::{self, Write};
 
 use clap::{CommandFactory, Parser, error::ErrorKind};
 
+mod attached_ui;
 pub mod cli;
 mod commands;
 mod nvim;
