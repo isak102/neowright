@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use neowright::cli::TERMINAL_PRESETS;
 use predicates::prelude::*;
 use serde_json::Value;
 use tempfile::TempDir;
@@ -110,6 +111,7 @@ fn short_help_works_for_all_commands() {
     let commands = [
         vec!["-h"],
         vec!["open", "-h"],
+        vec!["attach", "-h"],
         vec!["list", "-h"],
         vec!["close", "-h"],
         vec!["keys", "-h"],
@@ -145,6 +147,19 @@ fn keys_help_documents_rpc_and_pty_modes() {
         .stdout(predicate::str::contains("<CR>"))
         .stdout(predicate::str::contains("<C-c>"))
         .stdout(predicate::str::contains("<M-x>"));
+}
+
+#[test]
+fn attach_help_lists_terminal_presets() {
+    let mut assertion = neowright()
+        .args(["attach", "-h"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--terminal-preset"));
+
+    for preset in TERMINAL_PRESETS {
+        assertion = assertion.stdout(predicate::str::contains(preset.name));
+    }
 }
 
 #[test]
@@ -187,6 +202,7 @@ fn required_commands_exist() {
         .assert()
         .success()
         .stdout(predicate::str::contains("open"))
+        .stdout(predicate::str::contains("attach"))
         .stdout(predicate::str::contains("list"))
         .stdout(predicate::str::contains("close"))
         .stdout(predicate::str::contains("keys"))
@@ -196,6 +212,94 @@ fn required_commands_exist() {
         .stdout(predicate::str::contains("snapshot"))
         .stdout(predicate::str::contains("resize"))
         .stdout(predicate::str::contains("skills"));
+}
+
+#[test]
+fn open_headed_requires_launch_command_preset_or_detected_terminal() {
+    let state = TempDir::new().expect("state dir");
+
+    neowright()
+        .args(["open", "--headed"])
+        .env("XDG_STATE_HOME", state.path())
+        .env("TERM_PROGRAM", "unknown")
+        .env("TERMINAL", "unknown")
+        .env_remove("ALACRITTY_WINDOW_ID")
+        .env_remove("GHOSTTY_BIN_DIR")
+        .env_remove("GHOSTTY_RESOURCES_DIR")
+        .env_remove("__CFBundleIdentifier")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("### Error"))
+        .stderr(predicate::str::contains("--terminal-cmd"))
+        .stderr(predicate::str::contains("--terminal-preset"));
+}
+
+#[test]
+fn open_terminal_cmd_requires_headed() {
+    neowright()
+        .args(["open", "--terminal-cmd", TERMINAL_PRESETS[0].command])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("### Error"))
+        .stderr(predicate::str::contains("--headed"));
+}
+
+#[test]
+fn open_terminal_preset_requires_headed() {
+    neowright()
+        .args(["open", "--terminal-preset", TERMINAL_PRESETS[0].name])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("### Error"))
+        .stderr(predicate::str::contains("--headed"));
+}
+
+#[test]
+fn attach_requires_terminal_or_print_command() {
+    let state = TempDir::new().expect("state dir");
+
+    neowright()
+        .args(["attach"])
+        .env("XDG_STATE_HOME", state.path())
+        .env("TERM_PROGRAM", "unknown")
+        .env("TERMINAL", "unknown")
+        .env_remove("ALACRITTY_WINDOW_ID")
+        .env_remove("GHOSTTY_BIN_DIR")
+        .env_remove("GHOSTTY_RESOURCES_DIR")
+        .env_remove("__CFBundleIdentifier")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("attach requires --terminal-cmd"))
+        .stderr(predicate::str::contains("--terminal-preset"))
+        .stderr(predicate::str::contains("--print-command"));
+}
+
+#[test]
+fn attach_print_command_resolves_session_socket_when_nvim_exists() {
+    require_nvim();
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args(["open", "--name", "main", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["attach", "--name", "main", "--print-command"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Attach Command"))
+        .stdout(predicate::str::contains("Session Name: `main`"))
+        .stdout(predicate::str::contains("nvim --server"))
+        .stdout(predicate::str::contains("--remote-ui"));
 }
 
 #[test]

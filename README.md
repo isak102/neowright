@@ -91,6 +91,20 @@ neowright wait "return vim.fn.mode() == 'n'"
 neowright snapshot
 ```
 
+Open a visible remote UI for demos or human debugging:
+
+```bash
+neowright open --name demo --headed -- -u NONE
+neowright attach --name demo
+neowright attach --name demo --terminal-preset <preset>
+neowright attach --name demo --terminal-cmd "<terminal-command>"
+neowright attach --name demo --print-command
+```
+
+Neowright can auto-detect known terminal presets from the current terminal environment, so `--terminal-preset` and `--terminal-cmd` are optional when running from a supported terminal. Use `neowright attach -h` to see the current preset flag help, `--terminal-preset` to force a known launch command, or `--terminal-cmd` for an arbitrary terminal command. Without `{}`, Neowright appends `nvim --server <socket> --remote-ui` as arguments. With `{}`, Neowright replaces the placeholder with one shell-quoted remote UI command string.
+
+Headed UIs are optional clients attached to the same Neovim instance. The original PTY-backed Session remains authoritative for `keys`, `eval`, `wait`, `resize`, and `snapshot`.
+
 Close the session when done:
 
 ```bash
@@ -103,6 +117,8 @@ Neowright runs Neovim in a PTY-backed session. Snapshots are text captures of th
 
 Session metadata is stored globally so agents can find active sessions from any working directory. Snapshot artifacts are written under `.neowright/` in the project where the session was opened.
 
+Visible attached UIs share editor state with the Session. Multiple UIs can affect layout, especially when the visible terminal is smaller than the Neowright PTY. Human input can race with agent input, resize events can change snapshots, focus-related plugins may observe extra UI transitions, and `:qa!` from any UI exits the shared Neovim instance.
+
 ## Development
 
 ```bash
@@ -112,5 +128,5 @@ cargo test
 
 ## Future Work
 
-- Multiple backends, including higher-fidelity terminal integrations such as Ghostty and Alacritty.
+- Multiple backends, including higher-fidelity terminal integrations.
 - Real screenshots in addition to terminal-grid snapshots.

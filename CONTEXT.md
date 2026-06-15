@@ -32,6 +32,10 @@ _Avoid_: JSON-first output, prose-only output
 An agent-readable capture of the current Neovim TUI state. In the MVP, a Snapshot means a terminal-style capture rather than a pixel image.
 _Avoid_: screenshot, image capture
 
+**Attached UI**:
+A visible Neovim UI client attached to an existing Session for human observation or interaction. An Attached UI shares editor state with the Session but is not authoritative for Neowright automation or Snapshots.
+_Avoid_: Session, terminal backend, snapshot source
+
 **Eval**:
 A command that runs Lua in a Session and returns the result. Eval may inspect or mutate the Session.
 _Avoid_: read-only inspection

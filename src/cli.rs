@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -19,6 +19,8 @@ pub struct Cli {
 pub enum Command {
     #[command(about = "Open a supervised Neovim session")]
     Open(OpenArgs),
+    #[command(about = "Attach a visible Neovim UI to a session")]
+    Attach(AttachArgs),
     #[command(about = "List active Neovim sessions")]
     List,
     #[command(hide = true, name = "__session-supervisor")]
@@ -76,9 +78,59 @@ pub struct OpenArgs {
     #[arg(long, value_parser = parse_size, help = "Set the terminal size as COLSxROWS")]
     pub size: Option<Size>,
 
+    #[arg(
+        long,
+        help = "Launch a visible remote UI after opening the session. Uses --terminal-cmd, --terminal-preset, or a detected known terminal"
+    )]
+    pub headed: bool,
+
+    #[arg(
+        long,
+        requires = "headed",
+        conflicts_with = "terminal_preset",
+        help = "Custom terminal command used to launch the visible remote UI"
+    )]
+    pub terminal_cmd: Option<String>,
+
+    #[arg(
+        long,
+        requires = "headed",
+        conflicts_with = "terminal_cmd",
+        value_enum,
+        help = "Known terminal preset to launch the visible remote UI"
+    )]
+    pub terminal_preset: Option<TerminalPreset>,
+
     #[arg(help = "Arguments passed through to nvim after --")]
     #[arg(last = true)]
     pub neovim_args: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct AttachArgs {
+    #[command(flatten)]
+    pub target: TargetSelector,
+
+    #[arg(
+        long,
+        conflicts_with_all = ["print_command", "terminal_preset"],
+        help = "Custom terminal command used to launch the visible remote UI"
+    )]
+    pub terminal_cmd: Option<String>,
+
+    #[arg(
+        long,
+        conflicts_with_all = ["print_command", "terminal_cmd"],
+        value_enum,
+        help = "Known terminal preset to launch the visible remote UI"
+    )]
+    pub terminal_preset: Option<TerminalPreset>,
+
+    #[arg(
+        long,
+        help = "Print the resolved nvim remote-ui command instead of launching it"
+    )]
+    pub print_command: bool,
 }
 
 #[derive(Debug, Args)]
@@ -206,6 +258,112 @@ pub struct TargetSelector {
     pub name: Option<String>,
 }
 
+pub struct TerminalPresetSpec {
+    pub preset: TerminalPreset,
+    pub name: &'static str,
+    pub aliases: &'static [&'static str],
+    pub command: &'static str,
+    pub detection: &'static [TerminalPresetDetection],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalPresetDetection {
+    EnvPresent(&'static str),
+    EnvEquals(&'static str, &'static str),
+    TermProgramContains(&'static str),
+}
+
+macro_rules! terminal_presets {
+    (
+        $(
+            $variant:ident {
+                name: $name:literal,
+                aliases: [$($alias:literal),* $(,)?],
+                command: $command:literal,
+                detection: [$($detection:expr),+ $(,)?] $(,)?
+            }
+        ),+ $(,)?
+    ) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum TerminalPreset {
+            $($variant),+
+        }
+
+        pub const TERMINAL_PRESETS: &[TerminalPresetSpec] = &[
+            $(
+                TerminalPresetSpec {
+                    preset: TerminalPreset::$variant,
+                    name: $name,
+                    aliases: &[$($alias),*],
+                    command: $command,
+                    detection: &[$($detection),+],
+                }
+            ),+
+        ];
+
+        pub fn terminal_preset_spec(preset: TerminalPreset) -> &'static TerminalPresetSpec {
+            TERMINAL_PRESETS
+                .iter()
+                .find(|spec| spec.preset == preset)
+                .expect("terminal preset macro generated matching enum and specs")
+        }
+
+        impl std::fmt::Display for TerminalPreset {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", terminal_preset_spec(*self).name)
+            }
+        }
+
+        impl ValueEnum for TerminalPreset {
+            fn value_variants<'a>() -> &'a [Self] {
+                const VARIANTS: &[TerminalPreset] = &[$(TerminalPreset::$variant),+];
+                VARIANTS
+            }
+
+            fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+                let spec = terminal_preset_spec(*self);
+                Some(clap::builder::PossibleValue::new(spec.name).aliases(spec.aliases))
+            }
+        }
+    };
+
+}
+
+terminal_presets! {
+    Alacritty {
+        name: "alacritty",
+        aliases: [],
+        command: "alacritty -e",
+        detection: [TerminalPresetDetection::EnvPresent("ALACRITTY_WINDOW_ID")],
+    },
+    Ghostty {
+        name: "ghostty",
+        aliases: [],
+        command: "ghostty -e",
+        detection: [
+            TerminalPresetDetection::TermProgramContains("ghostty"),
+            TerminalPresetDetection::EnvEquals("TERMINAL", "ghostty"),
+            TerminalPresetDetection::EnvPresent("GHOSTTY_BIN_DIR"),
+            TerminalPresetDetection::EnvPresent("GHOSTTY_RESOURCES_DIR"),
+            TerminalPresetDetection::EnvEquals("__CFBundleIdentifier", "com.mitchellh.ghostty"),
+        ],
+    },
+    Iterm {
+        name: "iterm",
+        aliases: ["iterm2"],
+        command: "osascript -e 'tell application \"iTerm2\" to create window with default profile command \"{}\"'",
+        detection: [TerminalPresetDetection::TermProgramContains("iterm")],
+    },
+}
+
+pub fn supported_terminal_preset_names() -> String {
+    TERMINAL_PRESETS
+        .iter()
+        .map(|spec| spec.name)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Size {
     pub cols: u16,
@@ -267,6 +425,19 @@ pub fn parse_duration(value: &str) -> Result<Duration, String> {
     }
 
     Err("duration must use ms or s, for example 500ms or 5s".to_string())
+}
+
+pub fn parse_terminal_preset(value: &str) -> Result<TerminalPreset, String> {
+    for spec in TERMINAL_PRESETS {
+        if value == spec.name || spec.aliases.contains(&value) {
+            return Ok(spec.preset);
+        }
+    }
+
+    Err(format!(
+        "terminal preset must be one of: {}",
+        supported_terminal_preset_names()
+    ))
 }
 
 #[cfg(test)]

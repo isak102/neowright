@@ -2,6 +2,7 @@ use std::fs::{self, File};
 use std::process::{Command, Stdio};
 
 use crate::cli::{OpenArgs, SessionSupervisorArgs};
+use crate::commands::{CommandFailure, launch_for_record, launch_summary, validate_launch_options};
 use crate::output;
 use crate::screen;
 use crate::session::{
@@ -9,7 +10,11 @@ use crate::session::{
 };
 use crate::session_supervisor;
 
-pub fn run(args: OpenArgs) -> Result<String, String> {
+pub fn run(args: OpenArgs) -> Result<String, CommandFailure> {
+    if args.headed {
+        validate_launch_options(args.terminal_cmd.as_deref(), args.terminal_preset)?;
+    }
+
     let cwd = std::env::current_dir().map_err(|error| format!("failed to resolve cwd: {error}"))?;
     let size = args.size.unwrap_or_default();
     let registry = SessionRegistry::load_global()?;
@@ -20,7 +25,7 @@ pub fn run(args: OpenArgs) -> Result<String, String> {
             .iter()
             .any(|record| record.name.as_deref() == Some(name.as_str()))
     {
-        return Err(format!("Session Name `{name}` is already active"));
+        return Err(format!("Session Name `{name}` is already active").into());
     }
 
     let id = generate_id();
@@ -83,10 +88,10 @@ pub fn run(args: OpenArgs) -> Result<String, String> {
     {
         let _ = supervisor.kill();
         let _ = supervisor.wait();
-        return Err(error);
+        return Err(error.into());
     }
 
-    Ok(output::opened_session(&SessionRecord {
+    let record = SessionRecord {
         id,
         name: args.name,
         cwd,
@@ -95,7 +100,25 @@ pub fn run(args: OpenArgs) -> Result<String, String> {
         supervisor_pid: supervisor.id(),
         child_pid: None,
         listen,
-    }))
+    };
+
+    let opened = output::opened_session(&record);
+    if args.headed {
+        let launch =
+            match launch_for_record(&record, args.terminal_cmd.as_deref(), args.terminal_preset) {
+                Ok(launch) => launch,
+                Err(error) => {
+                    return Err(CommandFailure {
+                        message: format!("Headed UI launch failed.\n\n{error}"),
+                        stdout: Some(crate::output::status_document(&opened)),
+                    });
+                }
+            };
+
+        return Ok(format!("{opened}\n\n{}", launch_summary(&launch)));
+    }
+
+    Ok(opened)
 }
 
 pub fn run_supervisor(args: SessionSupervisorArgs) -> Result<String, String> {

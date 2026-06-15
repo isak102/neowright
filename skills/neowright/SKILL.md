@@ -65,6 +65,22 @@ Capture the visible TUI grid:
 neowright snapshot --name debug
 ```
 
+Attach a visible UI only when a human needs to watch or interact with the same Session:
+
+```bash
+neowright attach --name debug
+neowright attach --name debug --terminal-preset <preset>
+neowright attach --name debug --terminal-cmd "<terminal-command>"
+```
+
+`attach` can auto-detect known terminal presets from the current terminal environment. Use `neowright attach -h` when you need the current preset flag help, `--terminal-preset` to force a known launch command, or `--terminal-cmd` when the user provides a custom terminal command.
+
+Use `--print-command` when you want the exact manual attach command instead of asking Neowright to launch a terminal:
+
+```bash
+neowright attach --name debug --print-command
+```
+
 Close Sessions opened for the task when the workflow is complete:
 
 ```bash
@@ -80,6 +96,8 @@ neowright close --name debug
 - Use Snapshot artifact paths from command output when referring to saved captures.
 - Snapshots are saved as project-local artifacts under `.neowright/`, which may appear as untracked files in the target project.
 - Prefer `wait` for state changes that may be asynchronous, such as plugin startup, diagnostics, completion, or UI redraws.
+- Treat attached visible UIs as optional clients. The PTY-backed Session remains authoritative for `keys`, `eval`, `wait`, `resize`, and `snapshot`.
+- Remember that attached UIs share editor state. Smaller terminals can affect layout and snapshots, human input can race with agent input, and `:qa!` from any UI exits the shared Neovim instance.
 - Close Sessions the agent opened when the task is finished.
 
 ## Common Patterns

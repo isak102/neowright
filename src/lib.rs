@@ -56,7 +56,10 @@ pub fn run_with_io(
             0
         }
         Err(error) => {
-            let _ = output::write_error(stderr, error);
+            if let Some(stdout_output) = error.stdout {
+                let _ = write!(stdout, "{stdout_output}");
+            }
+            let _ = output::write_error(stderr, error.message);
             1
         }
     }
