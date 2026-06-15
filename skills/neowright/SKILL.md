@@ -65,7 +65,7 @@ Capture the visible TUI grid:
 neowright snapshot --name debug
 ```
 
-Attach a visible UI only when a human needs to watch or interact with the same Session:
+Attach a headed visible UI only when the user explicitly asks for headed mode, a visible UI, a terminal window, or to watch/interact with the same Session. Do not infer headed mode from a debugging task, snapshot request, or need to inspect UI state; use headless Neowright commands and snapshots instead. If the user explicitly asks for headed mode, you must attach a visible UI.
 
 ```bash
 neowright attach --name debug
@@ -91,6 +91,9 @@ neowright close --name debug
 
 - Be explicit about which Session is being driven.
 - Use `--name` for repeatable targeting across commands.
+- Prefer small, step-by-step interactions over long key sequences sent all at once. Send the next key or short sequence only after confirming the previous step produced the expected UI or editor state.
+- Investigate between steps with `snapshot`, `wait`, `eval`, or `exec` rather than assuming what Neovim did. Interactive UI state can diverge because of modes, prompts, plugin latency, mappings, or completion menus.
+- Do not use headed mode unless the user explicitly asks for it. When they do ask for headed mode, attach a visible UI; do not substitute snapshots-only inspection.
 - Use `-h` on any command or subcommand when you need exact arguments, for example `neowright eval -h`.
 - Read Neowright output as Agent-Readable Markdown; important values such as Session IDs, paths, and results are reported as structured Markdown fields.
 - Use Snapshot artifact paths from command output when referring to saved captures.
