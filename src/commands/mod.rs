@@ -10,7 +10,6 @@ mod open;
 mod resize;
 mod skills;
 mod snapshot;
-mod target_session;
 mod wait;
 
 pub enum CommandOutput {

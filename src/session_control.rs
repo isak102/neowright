@@ -1,5 +1,8 @@
+use std::ffi::OsString;
+use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::attached_ui;
 use crate::cli::{Size, TargetSelector};
 use crate::nvim::{NvimClient, NvimValue};
 use crate::session::{self, SessionRecord, SessionRegistry};
@@ -13,8 +16,16 @@ pub(crate) trait SessionControl {
     fn exec(&mut self, command: &str) -> Result<String, String>;
     fn send_keys(&mut self, keys: &str) -> Result<(), String>;
     fn send_pty_keys(&mut self, keys: &str) -> Result<(), String>;
+    fn capture_snapshot(&self) -> Result<SnapshotCapture, String>;
+    fn ensure_attachable(&self) -> Result<(), String>;
+    fn remote_ui_command(&self) -> Vec<OsString>;
     fn resize(&mut self, size: Size) -> Result<(), String>;
     fn close(&mut self, force: bool) -> Result<(), String>;
+}
+
+pub(crate) struct SnapshotCapture {
+    pub(crate) contents: String,
+    pub(crate) artifact_path: PathBuf,
 }
 
 pub(crate) struct LiveSessionControl {
@@ -75,6 +86,23 @@ impl SessionControl for LiveSessionControl {
     fn send_pty_keys(&mut self, keys: &str) -> Result<(), String> {
         let bytes = translate_pty_keys(keys)?;
         self.io().write_pty_input(&bytes)
+    }
+
+    fn capture_snapshot(&self) -> Result<SnapshotCapture, String> {
+        let snapshot = self.io().read_settled_screen(self.record.size)?;
+        let artifact_path = self.io().write_snapshot_artifact(&snapshot)?;
+        Ok(SnapshotCapture {
+            contents: snapshot,
+            artifact_path,
+        })
+    }
+
+    fn ensure_attachable(&self) -> Result<(), String> {
+        attached_ui::ensure_listen_socket(&self.record)
+    }
+
+    fn remote_ui_command(&self) -> Vec<OsString> {
+        attached_ui::remote_ui_command(&self.record)
     }
 
     fn resize(&mut self, size: Size) -> Result<(), String> {

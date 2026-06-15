@@ -1,14 +1,16 @@
 use crate::cli::SnapshotArgs;
 use crate::commands::CommandOutput;
-use crate::commands::target_session::TargetSession;
 use crate::output::MarkdownDocument;
+use crate::session_control::{LiveSessionControl, SessionControl};
 
 pub fn run(args: SnapshotArgs) -> Result<CommandOutput, String> {
-    let target = TargetSession::resolve(&args.target)?;
-    let record = target.record();
-    let io = target.io();
-    let snapshot = io.read_settled_screen(record.size)?;
-    let path = io.write_snapshot_artifact(&snapshot)?;
+    let session = LiveSessionControl::resolve(&args.target)?;
+    run_with_control(&session)
+}
+
+fn run_with_control(session: &impl SessionControl) -> Result<CommandOutput, String> {
+    let record = session.record();
+    let snapshot = session.capture_snapshot()?;
 
     let mut markdown = MarkdownDocument::new();
     markdown
@@ -19,9 +21,9 @@ pub fn run(args: SnapshotArgs) -> Result<CommandOutput, String> {
             record.name.as_deref().unwrap_or("(unnamed)"),
         )
         .field("Size", record.size)
-        .field("Artifact", path.display())
+        .field("Artifact", snapshot.artifact_path.display())
         .section("Contents")
-        .code_block("text", &snapshot);
+        .code_block("text", &snapshot.contents);
 
     Ok(CommandOutput::Markdown(markdown.finish()))
 }

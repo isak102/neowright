@@ -4,7 +4,8 @@ use crate::attached_ui;
 use crate::cli::AttachArgs;
 use crate::commands::CommandOutput;
 use crate::output::MarkdownDocument;
-use crate::session::{SessionRecord, SessionRegistry};
+use crate::session::SessionRecord;
+use crate::session_control::{LiveSessionControl, SessionControl};
 
 pub fn run(args: AttachArgs) -> Result<CommandOutput, String> {
     let launch = if args.print_command {
@@ -16,19 +17,20 @@ pub fn run(args: AttachArgs) -> Result<CommandOutput, String> {
         )?)
     };
 
-    let record = SessionRegistry::load_global()?.resolve_target(&args.target)?;
-    attached_ui::ensure_listen_socket(&record)?;
-    let remote = attached_ui::remote_ui_command(&record);
+    let session = LiveSessionControl::resolve(&args.target)?;
+    session.ensure_attachable()?;
+    let record = session.record();
+    let remote = session.remote_ui_command();
 
     if args.print_command {
         return Ok(CommandOutput::Markdown(print_command_output(
-            &record, &remote,
+            record, &remote,
         )));
     }
 
     let launch = launch.expect("launch exists when not printing");
-    attached_ui::launch_for_record(&record, args.terminal_cmd.as_deref(), args.terminal_preset)?;
-    Ok(CommandOutput::Markdown(attached_output(&record, &launch)))
+    attached_ui::launch_for_record(record, args.terminal_cmd.as_deref(), args.terminal_preset)?;
+    Ok(CommandOutput::Markdown(attached_output(record, &launch)))
 }
 
 fn print_command_output(record: &SessionRecord, remote: &[OsString]) -> String {
