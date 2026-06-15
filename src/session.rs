@@ -1,5 +1,6 @@
 use std::env;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -69,6 +70,18 @@ pub struct SessionRegistry {
     path: PathBuf,
 }
 
+struct RegistryLock {
+    file: File,
+}
+
+impl Drop for RegistryLock {
+    fn drop(&mut self) {
+        unsafe {
+            libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
+}
+
 impl SessionRegistry {
     pub fn load_global() -> Result<Self, String> {
         Ok(Self {
@@ -77,38 +90,41 @@ impl SessionRegistry {
     }
 
     pub fn active_sessions(&self) -> Result<Vec<SessionRecord>, String> {
-        let active = self
-            .read_records()?
-            .into_iter()
-            .filter(|record| process_is_alive(record.supervisor_pid))
-            .collect::<Vec<_>>();
-        self.write_records(&active)?;
-        Ok(active)
+        self.with_active_records(|records| Ok(records.to_vec()))
     }
 
     pub fn insert(&self, record: SessionRecord) -> Result<(), String> {
-        let mut records = self.active_sessions()?;
-        records.retain(|existing| existing.id != record.id);
-        records.push(record);
-        self.write_records(&records)
+        self.with_active_records(|records| {
+            ensure_name_available(records, record.name.as_deref(), Some(&record.id))?;
+
+            records.retain(|existing| existing.id != record.id);
+            records.push(record);
+            Ok(())
+        })
+    }
+
+    pub fn ensure_name_available(&self, name: Option<&str>) -> Result<(), String> {
+        self.with_active_records(|records| ensure_name_available(records, name, None))
     }
 
     pub fn remove(&self, id: &str) -> Result<(), String> {
-        let mut records = self.read_records()?;
-        records.retain(|record| record.id != id);
-        self.write_records(&records)
+        self.with_records(|records| {
+            records.retain(|record| record.id != id);
+            Ok(())
+        })
     }
 
     pub fn update(&self, updated: SessionRecord) -> Result<(), String> {
-        let mut records = self.active_sessions()?;
-        let Some(existing) = records.iter_mut().find(|record| record.id == updated.id) else {
-            return Err(format!(
-                "no active Session found with Session ID `{}`",
-                updated.id
-            ));
-        };
-        *existing = updated;
-        self.write_records(&records)
+        self.with_active_records(|records| {
+            let Some(existing) = records.iter_mut().find(|record| record.id == updated.id) else {
+                return Err(format!(
+                    "no active Session found with Session ID `{}`",
+                    updated.id
+                ));
+            };
+            *existing = updated;
+            Ok(())
+        })
     }
 
     pub fn resolve_target(&self, selector: &TargetSelector) -> Result<SessionRecord, String> {
@@ -136,6 +152,63 @@ impl SessionRegistry {
                 active_session_list(&records)
             )),
         }
+    }
+
+    fn with_active_records<T>(
+        &self,
+        update: impl FnOnce(&mut Vec<SessionRecord>) -> Result<T, String>,
+    ) -> Result<T, String> {
+        self.with_records(|records| {
+            records.retain(|record| process_is_alive(record.supervisor_pid));
+            update(records)
+        })
+    }
+
+    fn with_records<T>(
+        &self,
+        update: impl FnOnce(&mut Vec<SessionRecord>) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let _lock = self.lock()?;
+        let mut records = self.read_records()?;
+        let result = update(&mut records)?;
+        self.write_records(&records)?;
+        Ok(result)
+    }
+
+    fn lock(&self) -> Result<RegistryLock, String> {
+        let lock_path = self.path.with_extension("lock");
+        if let Some(parent) = lock_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| {
+                format!(
+                    "failed to create Session Registry directory `{}`: {error}",
+                    parent.display()
+                )
+            })?;
+        }
+
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(&lock_path)
+            .map_err(|error| {
+                format!(
+                    "failed to open Session Registry lock `{}`: {error}",
+                    lock_path.display()
+                )
+            })?;
+
+        let locked = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+        if locked != 0 {
+            return Err(format!(
+                "failed to lock Session Registry `{}`: {}",
+                lock_path.display(),
+                std::io::Error::last_os_error()
+            ));
+        }
+
+        Ok(RegistryLock { file })
     }
 
     fn read_records(&self) -> Result<Vec<SessionRecord>, String> {
@@ -214,6 +287,24 @@ fn active_session_list(records: &[SessionRecord]) -> String {
     output
 }
 
+fn ensure_name_available(
+    records: &[SessionRecord],
+    name: Option<&str>,
+    replacing_id: Option<&str>,
+) -> Result<(), String> {
+    let Some(name) = name else {
+        return Ok(());
+    };
+
+    if records.iter().any(|existing| {
+        replacing_id != Some(existing.id.as_str()) && existing.name.as_deref() == Some(name)
+    }) {
+        return Err(format!("Session Name `{name}` is already active"));
+    }
+
+    Ok(())
+}
+
 pub fn process_is_alive(pid: u32) -> bool {
     if pid == 0 {
         return false;
@@ -252,6 +343,19 @@ fn kill_pid(pid: u32, signal: libc::c_int) {
 mod tests {
     use super::*;
 
+    fn record(id: &str, name: Option<&str>, supervisor_pid: u32) -> SessionRecord {
+        SessionRecord {
+            id: id.to_string(),
+            name: name.map(str::to_string),
+            cwd: PathBuf::from("/tmp/project"),
+            artifact_dir: PathBuf::from("/tmp/project/.neowright"),
+            size: DEFAULT_SIZE.into(),
+            supervisor_pid,
+            child_pid: None,
+            listen: PathBuf::from(format!("/tmp/{id}.sock")),
+        }
+    }
+
     #[test]
     fn generated_ids_are_non_empty_and_distinct() {
         let first = generate_id();
@@ -267,5 +371,43 @@ mod tests {
             artifact_dir_for(Path::new("/tmp/project")),
             PathBuf::from("/tmp/project/.neowright")
         );
+    }
+
+    #[test]
+    fn registry_rejects_duplicate_active_session_names() {
+        let tempdir = tempfile::tempdir().expect("create tempdir");
+        let registry = SessionRegistry {
+            path: tempdir.path().join("registry.json"),
+        };
+        let pid = std::process::id();
+
+        registry
+            .insert(record("first", Some("work"), pid))
+            .expect("insert first record");
+        let error = registry
+            .insert(record("second", Some("work"), pid))
+            .expect_err("duplicate active name should be rejected");
+
+        assert_eq!(error, "Session Name `work` is already active");
+        assert_eq!(registry.active_sessions().expect("read records").len(), 1);
+    }
+
+    #[test]
+    fn registry_allows_reusing_stale_session_names() {
+        let tempdir = tempfile::tempdir().expect("create tempdir");
+        let registry = SessionRegistry {
+            path: tempdir.path().join("registry.json"),
+        };
+
+        registry
+            .insert(record("stale", Some("work"), 0))
+            .expect("insert stale record");
+        registry
+            .insert(record("active", Some("work"), std::process::id()))
+            .expect("reuse stale name");
+
+        let records = registry.active_sessions().expect("read active records");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id, "active");
     }
 }

@@ -18,16 +18,7 @@ pub fn run(args: OpenArgs) -> Result<String, CommandFailure> {
 
     let cwd = std::env::current_dir().map_err(|error| format!("failed to resolve cwd: {error}"))?;
     let size = args.size.unwrap_or_default();
-    let registry = SessionRegistry::load_global()?;
-    let records = registry.active_sessions()?;
-
-    if let Some(name) = &args.name
-        && records
-            .iter()
-            .any(|record| record.name.as_deref() == Some(name.as_str()))
-    {
-        return Err(format!("Session Name `{name}` is already active").into());
-    }
+    SessionRegistry::load_global()?.ensure_name_available(args.name.as_deref())?;
 
     let id = generate_id();
     let artifact_dir = artifact_dir_for(&cwd);
