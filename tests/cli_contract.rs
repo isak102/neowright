@@ -1,35 +1,14 @@
-use assert_cmd::Command;
 use neowright::cli::TERMINAL_PRESETS;
 use predicates::prelude::*;
 use serde_json::Value;
 use tempfile::TempDir;
 
-struct SupervisorCleanup<'a> {
-    state_home: &'a std::path::Path,
-}
+mod support;
 
-impl Drop for SupervisorCleanup<'_> {
-    fn drop(&mut self) {
-        cleanup_supervisors(self.state_home);
-    }
-}
-
-fn neowright() -> Command {
-    Command::cargo_bin("neowright").expect("binary exists")
-}
-
-fn require_nvim() {
-    let status = std::process::Command::new("nvim")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-
-    assert!(
-        status.is_ok_and(|status| status.success()),
-        "nvim must be installed and runnable for Neowright integration tests"
-    );
-}
+use support::{
+    SupervisorCleanup, neowright, registry_records, require_nvim, run_neowright_with_timeout,
+    wait_until,
+};
 
 fn assert_contains(actual: &str, expected: &str) {
     assert!(
@@ -280,9 +259,7 @@ fn attach_print_command_resolves_session_socket_when_nvim_exists() {
 
     let state = TempDir::new().expect("state dir");
     let project = TempDir::new().expect("project dir");
-    let _cleanup = SupervisorCleanup {
-        state_home: state.path(),
-    };
+    let _cleanup = SupervisorCleanup::new(state.path());
 
     neowright()
         .args(["open", "--name", "main", "--", "-u", "NONE"])
@@ -1669,19 +1646,6 @@ fn skills_install_force_overwrites_existing_skill() {
     assert_not_exists(skill_path.join("CUSTOM.md"));
 }
 
-fn registry_records(state_home: &std::path::Path) -> Vec<Value> {
-    let registry = state_home.join("neowright/registry.json");
-    if !registry.exists() {
-        return Vec::new();
-    }
-    let contents = std::fs::read_to_string(registry).expect("registry contents");
-    let Value::Array(records) = serde_json::from_str::<Value>(&contents).expect("registry json")
-    else {
-        panic!("registry must be an array")
-    };
-    records
-}
-
 fn snapshot_files(snapshot_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut files = std::fs::read_dir(snapshot_dir)
         .expect("snapshot dir")
@@ -1742,85 +1706,4 @@ fn assert_neowright_skill_installed(skill_path: &std::path::Path) {
     assert_not_contains(&contents, "-- --clean");
     assert_not_contains(&contents, "test fixtures");
     assert_not_contains(&contents, "force-close");
-}
-
-fn run_neowright_with_timeout(
-    args: &[&str],
-    state_home: &std::path::Path,
-    timeout: std::time::Duration,
-) -> std::process::Output {
-    let binary = std::env::var_os("CARGO_BIN_EXE_neowright")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| assert_cmd::cargo::cargo_bin("neowright"));
-    let mut child = std::process::Command::new(binary)
-        .args(args)
-        .env("XDG_STATE_HOME", state_home)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("spawn neowright");
-
-    let start = std::time::Instant::now();
-    while start.elapsed() < timeout {
-        if child.try_wait().expect("poll neowright").is_some() {
-            return child.wait_with_output().expect("neowright output");
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-
-    let _ = child.kill();
-    let output = child
-        .wait_with_output()
-        .expect("timed out neowright output");
-    panic!(
-        "neowright {:?} timed out after {:?}\nstdout:\n{}\nstderr:\n{}",
-        args,
-        timeout,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-fn wait_until(
-    timeout: std::time::Duration,
-    description: &str,
-    mut condition: impl FnMut() -> bool,
-) {
-    let start = std::time::Instant::now();
-    while start.elapsed() < timeout {
-        if condition() {
-            return;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-
-    panic!("timed out after {timeout:?} waiting for {description}");
-}
-
-fn cleanup_supervisors(state_home: &std::path::Path) {
-    let registry = state_home.join("neowright/registry.json");
-    let Ok(contents) = std::fs::read_to_string(registry) else {
-        return;
-    };
-    let Ok(Value::Array(records)) = serde_json::from_str::<Value>(&contents) else {
-        return;
-    };
-
-    for record in &records {
-        if let Some(pid) = record.get("supervisor_pid").and_then(Value::as_u64) {
-            unsafe {
-                libc::kill(pid as libc::pid_t, libc::SIGTERM);
-            }
-        }
-    }
-
-    std::thread::sleep(std::time::Duration::from_millis(200));
-
-    for record in records {
-        if let Some(pid) = record.get("child_pid").and_then(Value::as_u64) {
-            unsafe {
-                libc::kill(pid as libc::pid_t, libc::SIGKILL);
-            }
-        }
-    }
 }

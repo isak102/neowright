@@ -1,85 +1,14 @@
-use assert_cmd::Command;
 use predicates::prelude::*;
 use serde_json::Value;
 use tempfile::TempDir;
 use unicode_width::UnicodeWidthStr;
 
-struct SupervisorCleanup<'a> {
-    state_home: &'a std::path::Path,
-}
+mod support;
 
-impl Drop for SupervisorCleanup<'_> {
-    fn drop(&mut self) {
-        cleanup_supervisors(self.state_home);
-    }
-}
-
-fn neowright() -> Command {
-    Command::cargo_bin("neowright").expect("binary exists")
-}
-
-fn require_nvim() {
-    let status = std::process::Command::new("nvim")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-
-    assert!(
-        status.is_ok_and(|status| status.success()),
-        "nvim must be installed and runnable for Neowright integration tests"
-    );
-}
-
-fn open_session(state: &std::path::Path, project: &std::path::Path, name: &str, args: &[&str]) {
-    let mut command_args = vec!["open", "--name", name, "--size", "80x20", "--"];
-    command_args.extend_from_slice(args);
-
-    neowright()
-        .args(command_args)
-        .env("XDG_STATE_HOME", state)
-        .current_dir(project)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("### Status"))
-        .stdout(predicate::str::contains("Session opened."));
-}
-
-fn eval_raw(state: &std::path::Path, name: &str, lua: &str) -> String {
-    let output = neowright()
-        .args(["eval", "--name", name, "--raw", lua])
-        .env("XDG_STATE_HOME", state)
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-
-    String::from_utf8(output).expect("utf8 stdout")
-}
-
-fn wait_for(state: &std::path::Path, name: &str, lua: &str) {
-    neowright()
-        .args(["wait", "--name", name, "--timeout", "3s", lua])
-        .env("XDG_STATE_HOME", state)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("### Result"));
-}
-
-fn snapshot_output(state: &std::path::Path, name: &str) -> String {
-    let output = neowright()
-        .args(["snapshot", "--name", name])
-        .env("XDG_STATE_HOME", state)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("### Snapshot"))
-        .get_output()
-        .stdout
-        .clone();
-
-    String::from_utf8(output).expect("utf8 stdout")
-}
+use support::{
+    SupervisorCleanup, eval_raw, neowright, open_session, registry_records, require_nvim,
+    snapshot_output, wait_for,
+};
 
 fn assert_contains(actual: &str, expected: &str) {
     assert!(
@@ -1051,45 +980,4 @@ fn pty_keys_still_work_after_resize() {
     let snapshot = snapshot_output(state.path(), "pty-resize");
     assert_contains(&snapshot, "pty after resize");
     assert_snapshot_dimensions(&snapshot, 50, 12);
-}
-
-fn registry_records(state_home: &std::path::Path) -> Vec<Value> {
-    let registry = state_home.join("neowright/registry.json");
-    if !registry.exists() {
-        return Vec::new();
-    }
-    let contents = std::fs::read_to_string(registry).expect("registry contents");
-    let Value::Array(records) = serde_json::from_str::<Value>(&contents).expect("registry json")
-    else {
-        panic!("registry must be an array")
-    };
-    records
-}
-
-fn cleanup_supervisors(state_home: &std::path::Path) {
-    let registry = state_home.join("neowright/registry.json");
-    let Ok(contents) = std::fs::read_to_string(registry) else {
-        return;
-    };
-    let Ok(Value::Array(records)) = serde_json::from_str::<Value>(&contents) else {
-        return;
-    };
-
-    for record in &records {
-        if let Some(pid) = record.get("supervisor_pid").and_then(Value::as_u64) {
-            unsafe {
-                libc::kill(pid as libc::pid_t, libc::SIGTERM);
-            }
-        }
-    }
-
-    std::thread::sleep(std::time::Duration::from_millis(200));
-
-    for record in records {
-        if let Some(pid) = record.get("child_pid").and_then(Value::as_u64) {
-            unsafe {
-                libc::kill(pid as libc::pid_t, libc::SIGKILL);
-            }
-        }
-    }
 }
