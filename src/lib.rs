@@ -12,6 +12,7 @@ mod screen;
 mod session;
 mod session_control;
 mod session_io;
+mod session_launch;
 mod session_supervisor;
 
 pub fn run(args: impl IntoIterator<Item = OsString>) -> i32 {
