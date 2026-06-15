@@ -1,10 +1,16 @@
-# Neowright
+# `neowright`
 
-Neowright is a CLI tool for agents to interact with a real Neovim TUI session. Think [Playwright CLI](https://playwright.dev/docs/test-cli), but for Neovim.
+`neowright` is a CLI tool for agents to interact with a real Neovim TUI session. Think [Playwright CLI](https://playwright.dev/docs/test-cli), but for Neovim.
 
-It exists so coding agents can debug your actual Neovim configuration, reproduce UI behavior, execute commands, press mappings, inspect editor state, and capture terminal snapshots inside a real Neovim TUI session.
+It helps your coding agents debug your actual Neovim configuration, reproduce UI behavior, execute commands, press mappings, inspect editor state, and capture terminal snapshots inside a real Neovim TUI session.
 
 This is mostly not a human-facing tool. Humans can run it, but the primary user is an agent that needs a reliable way to drive Neovim from the outside. The bundled agent skill teaches agents when to use the CLI and how to drive the Neovim feedback loop.
+
+## Demo
+
+https://github.com/user-attachments/assets/479f815e-d205-4d94-b4f8-45a3c0ddb343
+
+Above you can see `neowright` in action with the optional `--headed` flag. 
 
 ## Why
 
@@ -46,7 +52,7 @@ cargo install --git https://github.com/isak102/neowright --tag v0.2.0 neowright
 
 ### Install the Agent Skill
 
-Neowright ships with an agent skill that teaches agents when and how to use it.
+`neowright` ships with an agent skill that teaches agents when and how to use it.
 
 Install it globally:
 
@@ -101,7 +107,7 @@ neowright attach --name demo --terminal-cmd "<terminal-command>"
 neowright attach --name demo --print-command
 ```
 
-Neowright can auto-detect known terminal presets from the current terminal environment, so `--terminal-preset` and `--terminal-cmd` are optional when running from a supported terminal. Use `neowright attach -h` to see the current preset flag help, `--terminal-preset` to force a known launch command, or `--terminal-cmd` for an arbitrary terminal command. Without `{}`, Neowright appends `nvim --server <socket> --remote-ui` as arguments. With `{}`, Neowright replaces the placeholder with one shell-quoted remote UI command string.
+`neowright` can auto-detect known terminal presets from the current terminal environment, so `--terminal-preset` and `--terminal-cmd` are optional when running from a supported terminal. Use `neowright attach -h` to see the current preset flag help, `--terminal-preset` to force a known launch command, or `--terminal-cmd` for an arbitrary terminal command. Without `{}`, `neowright` appends `nvim --server <socket> --remote-ui` as arguments. With `{}`, `neowright` replaces the placeholder with one shell-quoted remote UI command string.
 
 Headed UIs are optional clients attached to the same Neovim instance. The original PTY-backed Session remains authoritative for `keys`, `eval`, `wait`, `resize`, and `snapshot`.
 
@@ -113,11 +119,11 @@ neowright close
 
 ## Current Shape
 
-Neowright runs Neovim in a PTY-backed session. Snapshots are text captures of the visible terminal grid, not pixel screenshots.
+`neowright` runs Neovim in a PTY-backed session. Snapshots are text captures of the visible terminal grid, not pixel screenshots.
 
 Session metadata is stored globally so agents can find active sessions from any working directory. Snapshot artifacts are written under `.neowright/` in the project where the session was opened.
 
-Visible attached UIs share editor state with the Session. Multiple UIs can affect layout, especially when the visible terminal is smaller than the Neowright PTY. Human input can race with agent input, resize events can change snapshots, focus-related plugins may observe extra UI transitions, and `:qa!` from any UI exits the shared Neovim instance.
+Visible attached UIs share editor state with the Session. Multiple UIs can affect layout, especially when the visible terminal is smaller than the `neowright` PTY. Human input can race with agent input, resize events can change snapshots, focus-related plugins may observe extra UI transitions, and `:qa!` from any UI exits the shared Neovim instance.
 
 ## Development
 
