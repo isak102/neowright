@@ -14,6 +14,7 @@ use crate::cli::SessionSupervisorArgs;
 use crate::nvim::{NvimClient, NvimValue};
 use crate::screen;
 use crate::session::{SessionRecord, SessionRegistry, SizeRecord};
+use crate::session_io::{self, SessionIo};
 
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
 static SUPERVISOR_SHUTDOWN: AtomicBool = AtomicBool::new(false);
@@ -48,12 +49,11 @@ pub fn run(args: SessionSupervisorArgs) -> Result<String, String> {
     drop(pair.slave);
 
     let size = SizeRecord::from(args.size);
-    let screen_path = screen::runtime_dir(&args.artifact_dir, &args.session).join("screen.txt");
-    let desired_size_path = screen::desired_size_path(&args.artifact_dir, &args.session);
-    let pty_input_path = screen::pty_input_path(&args.artifact_dir, &args.session);
+    let io = SessionIo::new(args.session.clone(), args.artifact_dir.clone());
+    let pty_input_path = io.pty_input_path();
     let _ = fs::remove_file(&pty_input_path);
     let parser = Arc::new(Mutex::new(screen::parser_for(size)));
-    persist_current_screen(&parser, &screen_path, size)?;
+    persist_current_screen(&parser, &io, size)?;
 
     let mut reader = pair
         .master
@@ -66,7 +66,7 @@ pub fn run(args: SessionSupervisorArgs) -> Result<String, String> {
     let writer = Arc::new(Mutex::new(writer));
     spawn_pty_input_listener(&pty_input_path, Arc::clone(&writer))?;
     let reader_parser = Arc::clone(&parser);
-    let reader_screen_path = screen_path.clone();
+    let reader_io = io.clone();
     let reader_writer = Arc::clone(&writer);
     thread::spawn(move || {
         let mut buffer = [0; 8192];
@@ -89,12 +89,12 @@ pub fn run(args: SessionSupervisorArgs) -> Result<String, String> {
             let size = parser_size(&parser);
             let contents = screen::snapshot_text(&parser, size);
             drop(parser);
-            let _ = screen::write_latest(&reader_screen_path, &contents);
+            let _ = reader_io.write_latest_screen(&contents);
         }
     });
 
     if let Err(error) = wait_for_socket(&args.listen, READY_TIMEOUT)
-        .and_then(|_| screen::restrict_socket_permissions(&args.listen))
+        .and_then(|_| session_io::restrict_socket_permissions(&args.listen))
         .and_then(|_| wait_for_rpc(&args.listen, READY_TIMEOUT))
     {
         kill_child(&mut child);
@@ -135,7 +135,7 @@ pub fn run(args: SessionSupervisorArgs) -> Result<String, String> {
             break;
         }
 
-        if let Some(desired_size) = read_desired_size(&desired_size_path)?
+        if let Some(desired_size) = io.read_desired_size()?
             && desired_size != current_parser_size(&parser)?
         {
             pair.master
@@ -199,7 +199,7 @@ fn spawn_pty_input_listener(
             path.display()
         )
     })?;
-    screen::restrict_socket_permissions(path)?;
+    session_io::restrict_socket_permissions(path)?;
 
     thread::spawn(move || {
         for stream in listener.incoming() {
@@ -223,13 +223,13 @@ fn spawn_pty_input_listener(
 
 fn persist_current_screen(
     parser: &Arc<Mutex<vt100::Parser>>,
-    path: &Path,
+    io: &SessionIo,
     size: SizeRecord,
 ) -> Result<(), String> {
     let parser = parser
         .lock()
         .map_err(|_| "failed to lock Screen parser".to_string())?;
-    screen::write_latest(path, &screen::snapshot_text(&parser, size))
+    io.write_latest_screen(&screen::snapshot_text(&parser, size))
 }
 
 fn parser_size(parser: &vt100::Parser) -> SizeRecord {
@@ -242,25 +242,6 @@ fn current_parser_size(parser: &Arc<Mutex<vt100::Parser>>) -> Result<SizeRecord,
         .lock()
         .map_err(|_| "failed to lock Screen parser".to_string())?;
     Ok(parser_size(&parser))
-}
-
-fn read_desired_size(path: &Path) -> Result<Option<SizeRecord>, String> {
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let contents = fs::read_to_string(path).map_err(|error| {
-        format!(
-            "failed to read desired Session size `{}`: {error}",
-            path.display()
-        )
-    })?;
-    serde_json::from_str(&contents).map(Some).map_err(|error| {
-        format!(
-            "failed to parse desired Session size `{}`: {error}",
-            path.display()
-        )
-    })
 }
 
 fn install_supervisor_signal_handlers() {

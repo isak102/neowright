@@ -4,10 +4,10 @@ use std::process::{Command, Stdio};
 use crate::cli::{OpenArgs, SessionSupervisorArgs};
 use crate::commands::{CommandFailure, launch_for_record, launch_summary, validate_launch_options};
 use crate::output;
-use crate::screen;
 use crate::session::{
     SessionRecord, SessionRegistry, SizeRecord, artifact_dir_for, ensure_artifact_dir, generate_id,
 };
+use crate::session_io::SessionIo;
 use crate::session_supervisor;
 
 pub fn run(args: OpenArgs) -> Result<String, CommandFailure> {
@@ -32,7 +32,8 @@ pub fn run(args: OpenArgs) -> Result<String, CommandFailure> {
     let artifact_dir = artifact_dir_for(&cwd);
     ensure_artifact_dir(&artifact_dir)?;
 
-    let runtime_dir = screen::runtime_dir(&artifact_dir, &id);
+    let io = SessionIo::new(id.clone(), artifact_dir.clone());
+    let runtime_dir = io.runtime_dir();
     fs::create_dir_all(&runtime_dir).map_err(|error| {
         format!(
             "failed to create Session runtime directory `{}`: {error}",
@@ -40,7 +41,7 @@ pub fn run(args: OpenArgs) -> Result<String, CommandFailure> {
         )
     })?;
 
-    let listen = screen::nvim_listen_path(&id);
+    let listen = SessionIo::nvim_listen_path(&id);
     let ready_file = runtime_dir.join("ready");
     let supervisor_log = runtime_dir.join("supervisor.log");
     let current_exe = std::env::current_exe()

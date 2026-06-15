@@ -2,8 +2,8 @@ use crate::cli::ResizeArgs;
 use crate::commands::CommandOutput;
 use crate::nvim::NvimClient;
 use crate::output::MarkdownDocument;
-use crate::screen;
 use crate::session;
+use crate::session_io::SessionIo;
 
 pub fn run(args: ResizeArgs) -> Result<CommandOutput, String> {
     let registry = session::SessionRegistry::load_global()?;
@@ -15,7 +15,7 @@ pub fn run(args: ResizeArgs) -> Result<CommandOutput, String> {
     ))?;
     record.size = args.size.into();
     registry.update(record.clone())?;
-    write_desired_size(&record)?;
+    SessionIo::for_record(&record).write_desired_size(record.size)?;
 
     let mut markdown = MarkdownDocument::new();
     markdown
@@ -28,11 +28,4 @@ pub fn run(args: ResizeArgs) -> Result<CommandOutput, String> {
         .field("Size", record.size);
 
     Ok(CommandOutput::Markdown(markdown.finish()))
-}
-
-fn write_desired_size(record: &session::SessionRecord) -> Result<(), String> {
-    let path = screen::desired_size_path(&record.artifact_dir, &record.id);
-    let contents = serde_json::to_string(&record.size)
-        .map_err(|error| format!("failed to serialize desired Session size: {error}"))?;
-    screen::write_latest(&path, &contents)
 }

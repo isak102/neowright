@@ -4,21 +4,9 @@ use std::path::{Path, PathBuf};
 
 use unicode_width::UnicodeWidthChar;
 
-use crate::session::{SessionRecord, SizeRecord};
+use crate::session::SizeRecord;
 
 const SOCKET_DIR: &str = "/tmp";
-
-pub fn runtime_dir(artifact_dir: &Path, session_id: &str) -> PathBuf {
-    artifact_dir.join("sessions").join(session_id)
-}
-
-pub fn screen_path(record: &SessionRecord) -> PathBuf {
-    runtime_dir(&record.artifact_dir, &record.id).join("screen.txt")
-}
-
-pub fn desired_size_path(artifact_dir: &Path, session_id: &str) -> PathBuf {
-    runtime_dir(artifact_dir, session_id).join("desired-size.json")
-}
 
 pub fn nvim_listen_path(session_id: &str) -> PathBuf {
     runtime_socket_path(session_id, ".sock")
