@@ -125,8 +125,3 @@ Visible attached UIs share editor state with the Session. Multiple UIs can affec
 cargo fmt
 cargo test
 ```
-
-## Future Work
-
-- Multiple backends, including higher-fidelity terminal integrations.
-- Real screenshots in addition to terminal-grid snapshots.
