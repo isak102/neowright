@@ -29,7 +29,7 @@ pub fn run(args: AttachArgs) -> Result<CommandOutput, String> {
     }
 
     let launch = launch.expect("launch exists when not printing");
-    attached_ui::launch_for_record(record, args.terminal_cmd.as_deref(), args.terminal_preset)?;
+    launch.launch_for_record(record)?;
     Ok(CommandOutput::Markdown(attached_output(record, &launch)))
 }
 

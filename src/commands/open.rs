@@ -12,9 +12,14 @@ use crate::session_io::SessionIo;
 use crate::session_supervisor;
 
 pub fn run(args: OpenArgs) -> Result<String, CommandFailure> {
-    if args.headed {
-        attached_ui::validate_launch_options(args.terminal_cmd.as_deref(), args.terminal_preset)?;
-    }
+    let launch = if args.headed {
+        Some(attached_ui::TerminalLaunch::resolve(
+            args.terminal_cmd.as_deref(),
+            args.terminal_preset,
+        )?)
+    } else {
+        None
+    };
 
     let cwd = std::env::current_dir().map_err(|error| format!("failed to resolve cwd: {error}"))?;
     let size = args.size.unwrap_or_default();
@@ -96,13 +101,9 @@ pub fn run(args: OpenArgs) -> Result<String, CommandFailure> {
     };
 
     let opened = output::opened_session(&record);
-    if args.headed {
-        let launch = match attached_ui::launch_for_record(
-            &record,
-            args.terminal_cmd.as_deref(),
-            args.terminal_preset,
-        ) {
-            Ok(launch) => launch,
+    if let Some(launch) = launch {
+        match launch.launch_for_record(&record) {
+            Ok(()) => {}
             Err(error) => {
                 return Err(CommandFailure {
                     message: format!("Headed UI launch failed.\n\n{error}"),

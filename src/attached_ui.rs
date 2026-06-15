@@ -8,24 +8,6 @@ use crate::cli::{
 };
 use crate::session::SessionRecord;
 
-pub(crate) fn launch_for_record(
-    record: &SessionRecord,
-    terminal_cmd: Option<&str>,
-    terminal_preset: Option<TerminalPreset>,
-) -> Result<TerminalLaunch, String> {
-    ensure_listen_socket(record)?;
-    let launch = TerminalLaunch::resolve(terminal_cmd, terminal_preset)?;
-    launch_terminal(&launch.command, &remote_ui_command(record))?;
-    Ok(launch)
-}
-
-pub(crate) fn validate_launch_options(
-    terminal_cmd: Option<&str>,
-    terminal_preset: Option<TerminalPreset>,
-) -> Result<(), String> {
-    TerminalLaunch::resolve(terminal_cmd, terminal_preset).map(|_| ())
-}
-
 pub(crate) fn remote_ui_command(record: &SessionRecord) -> Vec<OsString> {
     vec![
         OsString::from("nvim"),
@@ -100,6 +82,11 @@ impl TerminalLaunch {
 
     pub(crate) fn source_label(&self) -> String {
         launch_source_label(&self.source)
+    }
+
+    pub(crate) fn launch_for_record(&self, record: &SessionRecord) -> Result<(), String> {
+        ensure_listen_socket(record)?;
+        launch_terminal(&self.command, &remote_ui_command(record))
     }
 }
 
