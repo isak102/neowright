@@ -1,15 +1,13 @@
 use crate::cli::KeysArgs;
 use crate::commands::CommandOutput;
-use crate::nvim::NvimClient;
+use crate::commands::target_session::TargetSession;
 use crate::output;
-use crate::session;
-use crate::session_io::SessionIo;
 
 pub fn run(args: KeysArgs) -> Result<CommandOutput, String> {
-    let record = session::SessionRegistry::load_global()?.resolve_target(&args.target)?;
+    let target = TargetSession::resolve(&args.target)?;
     if args.pty {
         let bytes = translate_pty_keys(&args.keys)?;
-        SessionIo::for_record(&record).write_pty_input(&bytes)?;
+        target.io().write_pty_input(&bytes)?;
 
         return Ok(CommandOutput::Markdown(output::sent_keys(
             "Sent PTY Keys",
@@ -17,7 +15,7 @@ pub fn run(args: KeysArgs) -> Result<CommandOutput, String> {
         )));
     }
 
-    let mut client = NvimClient::connect(&record)?;
+    let mut client = target.client()?;
     client.feed_keys(&args.keys)?;
 
     Ok(CommandOutput::Markdown(output::sent_keys(

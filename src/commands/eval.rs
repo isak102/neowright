@@ -1,12 +1,11 @@
 use crate::cli::EvalArgs;
 use crate::commands::CommandOutput;
-use crate::nvim::NvimClient;
+use crate::commands::target_session::TargetSession;
 use crate::output;
-use crate::session;
 
 pub fn run(args: EvalArgs) -> Result<CommandOutput, String> {
-    let record = session::SessionRegistry::load_global()?.resolve_target(&args.target)?;
-    let mut client = NvimClient::connect(&record)?;
+    let target = TargetSession::resolve(&args.target)?;
+    let mut client = target.client()?;
     let result = client.eval_lua(&args.lua)?;
 
     if args.raw {

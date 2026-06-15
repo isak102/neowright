@@ -1,12 +1,11 @@
 use crate::cli::ExecArgs;
 use crate::commands::CommandOutput;
-use crate::nvim::NvimClient;
+use crate::commands::target_session::TargetSession;
 use crate::output;
-use crate::session;
 
 pub fn run(args: ExecArgs) -> Result<CommandOutput, String> {
-    let record = session::SessionRegistry::load_global()?.resolve_target(&args.target)?;
-    let mut client = NvimClient::connect(&record)?;
+    let target = TargetSession::resolve(&args.target)?;
+    let mut client = target.client()?;
     let command = args.command.strip_prefix(':').unwrap_or(&args.command);
     let output = client.exec(command)?;
 

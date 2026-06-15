@@ -1,12 +1,12 @@
 use crate::cli::SnapshotArgs;
 use crate::commands::CommandOutput;
+use crate::commands::target_session::TargetSession;
 use crate::output::MarkdownDocument;
-use crate::session;
-use crate::session_io::SessionIo;
 
 pub fn run(args: SnapshotArgs) -> Result<CommandOutput, String> {
-    let record = session::SessionRegistry::load_global()?.resolve_target(&args.target)?;
-    let io = SessionIo::for_record(&record);
+    let target = TargetSession::resolve(&args.target)?;
+    let record = target.record();
+    let io = target.io();
     let snapshot = io.read_settled_screen(record.size)?;
     let path = io.write_snapshot_artifact(&snapshot)?;
 
