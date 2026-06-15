@@ -1,10 +1,8 @@
 use crate::cli::CloseArgs;
 use crate::commands::CommandOutput;
-use crate::nvim::{NvimClient, NvimValue};
 use crate::output::MarkdownDocument;
 use crate::session;
-
-const GRACEFUL_CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+use crate::session_control::{LiveSessionControl, SessionControl};
 
 pub fn run(args: CloseArgs) -> Result<CommandOutput, String> {
     let records = if args.all {
@@ -24,7 +22,7 @@ pub fn run(args: CloseArgs) -> Result<CommandOutput, String> {
     let mut successes = Vec::new();
     let mut failures = Vec::new();
     for record in records {
-        match close_one(&record, args.force) {
+        match close_one(record.clone(), args.force) {
             Ok(()) => successes.push(record),
             Err(error) => failures.push((record, error)),
         }
@@ -60,36 +58,6 @@ pub fn run(args: CloseArgs) -> Result<CommandOutput, String> {
     Ok(CommandOutput::Markdown(markdown.finish()))
 }
 
-fn close_one(record: &session::SessionRecord, force: bool) -> Result<(), String> {
-    let mut client = NvimClient::connect(record)?;
-    if !force {
-        let modified = client.eval_lua(
-            r#"
-local modified = {}
-for _, buffer in ipairs(vim.api.nvim_list_bufs()) do
-  if vim.bo[buffer].modified then
-    table.insert(modified, vim.api.nvim_buf_get_name(buffer))
-  end
-end
-return modified
-"#,
-        )?;
-        if let NvimValue::Array(buffers) = modified
-            && !buffers.is_empty()
-        {
-            return Err(format!(
-                "Session has unsaved changes; use `--force` to discard them ({})",
-                buffers.len()
-            ));
-        }
-    }
-
-    let command = if force { "qall!" } else { "qall" };
-    client.notify_command(command)?;
-    let exited = session::wait_for_record_exit(record, GRACEFUL_CLOSE_TIMEOUT);
-    session::SessionRegistry::load_global()?.remove(&record.id)?;
-    if !exited {
-        session::kill_record_processes(record);
-    }
-    Ok(())
+fn close_one(record: session::SessionRecord, force: bool) -> Result<(), String> {
+    LiveSessionControl::for_record(record)?.close(force)
 }

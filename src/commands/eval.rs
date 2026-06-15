@@ -1,12 +1,18 @@
 use crate::cli::EvalArgs;
 use crate::commands::CommandOutput;
-use crate::commands::target_session::TargetSession;
 use crate::output;
+use crate::session_control::{LiveSessionControl, SessionControl};
 
 pub fn run(args: EvalArgs) -> Result<CommandOutput, String> {
-    let target = TargetSession::resolve(&args.target)?;
-    let mut client = target.client()?;
-    let result = client.eval_lua(&args.lua)?;
+    let mut session = LiveSessionControl::resolve(&args.target)?;
+    run_with_control(args, &mut session)
+}
+
+fn run_with_control(
+    args: EvalArgs,
+    session: &mut impl SessionControl,
+) -> Result<CommandOutput, String> {
+    let result = session.eval_lua(&args.lua)?;
 
     if args.raw {
         return Ok(CommandOutput::Raw(format!("{}\n", result.format_raw())));

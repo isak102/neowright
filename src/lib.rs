@@ -10,6 +10,7 @@ mod nvim;
 mod output;
 mod screen;
 mod session;
+mod session_control;
 mod session_io;
 mod session_supervisor;
 

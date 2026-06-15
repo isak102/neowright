@@ -1,12 +1,19 @@
 use crate::cli::ResizeArgs;
 use crate::commands::CommandOutput;
-use crate::commands::target_session::TargetSession;
 use crate::output::MarkdownDocument;
+use crate::session_control::{LiveSessionControl, SessionControl};
 
 pub fn run(args: ResizeArgs) -> Result<CommandOutput, String> {
-    let mut target = TargetSession::resolve(&args.target)?;
-    target.resize(args.size)?;
-    let record = target.record();
+    let mut session = LiveSessionControl::resolve(&args.target)?;
+    run_with_control(args, &mut session)
+}
+
+fn run_with_control(
+    args: ResizeArgs,
+    session: &mut impl SessionControl,
+) -> Result<CommandOutput, String> {
+    session.resize(args.size)?;
+    let record = session.record();
 
     let mut markdown = MarkdownDocument::new();
     markdown
