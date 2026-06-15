@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::cli::SessionSupervisorArgs;
 use crate::nvim::{NvimClient, NvimValue};
@@ -21,148 +21,226 @@ static SUPERVISOR_SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
 pub fn run(args: SessionSupervisorArgs) -> Result<String, String> {
     install_supervisor_signal_handlers();
-    let _ = fs::remove_file(&args.listen);
-    let _ = fs::remove_file(&args.ready_file);
 
-    let pty_system = native_pty_system();
-    let pair = pty_system
-        .openpty(PtySize {
-            rows: args.size.rows,
-            cols: args.size.cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .map_err(|error| format!("failed to open PTY: {error}"))?;
+    let mut runtime = SupervisorRuntime::start(args)?;
+    runtime.wait_until_ready()?;
+    runtime.register()?;
+    runtime.mark_ready()?;
+    runtime.run_until_exit()?;
 
-    let mut command = CommandBuilder::new("nvim");
-    command.cwd(&args.cwd);
-    command.arg("--listen");
-    command.arg(args.listen.as_os_str());
-    for arg in &args.neovim_args {
-        command.arg(arg);
-    }
-
-    let mut child = pair
-        .slave
-        .spawn_command(command)
-        .map_err(|error| format!("failed to start nvim: {error}"))?;
-    drop(pair.slave);
-
-    let size = SizeRecord::from(args.size);
-    let io = SessionIo::new(args.session.clone(), args.artifact_dir.clone());
-    let pty_input_path = io.pty_input_path();
-    let _ = fs::remove_file(&pty_input_path);
-    let parser = Arc::new(Mutex::new(screen::parser_for(size)));
-    persist_current_screen(&parser, &io, size)?;
-
-    let mut reader = pair
-        .master
-        .try_clone_reader()
-        .map_err(|error| format!("failed to read PTY output: {error}"))?;
-    let writer = pair
-        .master
-        .take_writer()
-        .map_err(|error| format!("failed to write PTY input: {error}"))?;
-    let writer = Arc::new(Mutex::new(writer));
-    spawn_pty_input_listener(&pty_input_path, Arc::clone(&writer))?;
-    let reader_parser = Arc::clone(&parser);
-    let reader_io = io.clone();
-    let reader_writer = Arc::clone(&writer);
-    thread::spawn(move || {
-        let mut buffer = [0; 8192];
-        while let Ok(bytes_read) = reader.read(&mut buffer) {
-            if bytes_read == 0 {
-                break;
-            }
-            if buffer[..bytes_read]
-                .windows(4)
-                .any(|window| window == b"\x1b[5n")
-                && let Ok(mut writer) = reader_writer.lock()
-            {
-                let _ = writer.write_all(b"\x1b[0n");
-                let _ = writer.flush();
-            }
-            let Ok(mut parser) = reader_parser.lock() else {
-                break;
-            };
-            parser.process(&buffer[..bytes_read]);
-            let size = parser_size(&parser);
-            let contents = screen::snapshot_text(&parser, size);
-            drop(parser);
-            let _ = reader_io.write_latest_screen(&contents);
-        }
-    });
-
-    if let Err(error) = wait_for_socket(&args.listen, READY_TIMEOUT)
-        .and_then(|_| session_io::restrict_socket_permissions(&args.listen))
-        .and_then(|_| wait_for_rpc(&args.listen, READY_TIMEOUT))
-    {
-        kill_child(&mut child);
-        let _ = fs::remove_file(&args.listen);
-        let _ = fs::remove_file(&pty_input_path);
-        return Err(error);
-    }
-
-    SessionRegistry::load_global()?.insert(SessionRecord {
-        id: args.session.clone(),
-        name: args.name.clone(),
-        cwd: args.cwd.clone(),
-        artifact_dir: args.artifact_dir.clone(),
-        size,
-        supervisor_pid: std::process::id(),
-        child_pid: child.process_id(),
-        listen: args.listen.clone(),
-    })?;
-
-    fs::write(&args.ready_file, b"ready").map_err(|error| {
-        format!(
-            "failed to write readiness file `{}`: {error}",
-            args.ready_file.display()
-        )
-    })?;
-
-    loop {
-        if SUPERVISOR_SHUTDOWN.load(Ordering::Relaxed) {
-            kill_child(&mut child);
-            break;
-        }
-
-        if child
-            .try_wait()
-            .map_err(|error| format!("failed while polling nvim: {error}"))?
-            .is_some()
-        {
-            break;
-        }
-
-        if let Some(desired_size) = io.read_desired_size()?
-            && desired_size != current_parser_size(&parser)?
-        {
-            pair.master
-                .resize(PtySize {
-                    rows: desired_size.rows,
-                    cols: desired_size.cols,
-                    pixel_width: 0,
-                    pixel_height: 0,
-                })
-                .map_err(|error| format!("failed to resize PTY: {error}"))?;
-            let mut parser = parser
-                .lock()
-                .map_err(|_| "failed to lock Screen parser".to_string())?;
-            parser
-                .screen_mut()
-                .set_size(desired_size.rows, desired_size.cols);
-        }
-
-        thread::sleep(Duration::from_millis(50));
-    }
-
-    if let Ok(registry) = SessionRegistry::load_global() {
-        let _ = registry.remove(&args.session);
-    }
-    let _ = fs::remove_file(&args.listen);
-    let _ = fs::remove_file(&pty_input_path);
     Ok("Session supervisor exited.".to_string())
+}
+
+struct SupervisorRuntime {
+    session_id: String,
+    name: Option<String>,
+    cwd: std::path::PathBuf,
+    artifact_dir: std::path::PathBuf,
+    listen: std::path::PathBuf,
+    ready_file: std::path::PathBuf,
+    size: SizeRecord,
+    master: Box<dyn MasterPty + Send>,
+    child: Box<dyn Child + Send + Sync>,
+    io: SessionIo,
+    parser: Arc<Mutex<vt100::Parser>>,
+    pty_input_path: std::path::PathBuf,
+    registered: bool,
+}
+
+impl SupervisorRuntime {
+    fn start(args: SessionSupervisorArgs) -> Result<Self, String> {
+        let _ = fs::remove_file(&args.listen);
+        let _ = fs::remove_file(&args.ready_file);
+
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: args.size.rows,
+                cols: args.size.cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|error| format!("failed to open PTY: {error}"))?;
+
+        let mut command = CommandBuilder::new("nvim");
+        command.cwd(&args.cwd);
+        command.arg("--listen");
+        command.arg(args.listen.as_os_str());
+        for arg in &args.neovim_args {
+            command.arg(arg);
+        }
+
+        let child = pair
+            .slave
+            .spawn_command(command)
+            .map_err(|error| format!("failed to start nvim: {error}"))?;
+        drop(pair.slave);
+
+        let size = SizeRecord::from(args.size);
+        let io = SessionIo::new(args.session.clone(), args.artifact_dir.clone());
+        let pty_input_path = io.pty_input_path();
+        let _ = fs::remove_file(&pty_input_path);
+        let parser = Arc::new(Mutex::new(screen::parser_for(size)));
+        persist_current_screen(&parser, &io, size)?;
+
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|error| format!("failed to read PTY output: {error}"))?;
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|error| format!("failed to write PTY input: {error}"))?;
+        let writer = Arc::new(Mutex::new(writer));
+        spawn_pty_input_listener(&pty_input_path, Arc::clone(&writer))?;
+        let reader_parser = Arc::clone(&parser);
+        let reader_io = io.clone();
+        let reader_writer = Arc::clone(&writer);
+        thread::spawn(move || {
+            let mut buffer = [0; 8192];
+            while let Ok(bytes_read) = reader.read(&mut buffer) {
+                if bytes_read == 0 {
+                    break;
+                }
+                if buffer[..bytes_read]
+                    .windows(4)
+                    .any(|window| window == b"\x1b[5n")
+                    && let Ok(mut writer) = reader_writer.lock()
+                {
+                    let _ = writer.write_all(b"\x1b[0n");
+                    let _ = writer.flush();
+                }
+                let Ok(mut parser) = reader_parser.lock() else {
+                    break;
+                };
+                parser.process(&buffer[..bytes_read]);
+                let size = parser_size(&parser);
+                let contents = screen::snapshot_text(&parser, size);
+                drop(parser);
+                let _ = reader_io.write_latest_screen(&contents);
+            }
+        });
+
+        Ok(Self {
+            session_id: args.session,
+            name: args.name,
+            cwd: args.cwd,
+            artifact_dir: args.artifact_dir,
+            listen: args.listen,
+            ready_file: args.ready_file,
+            size,
+            master: pair.master,
+            child,
+            io,
+            parser,
+            pty_input_path,
+            registered: false,
+        })
+    }
+
+    fn wait_until_ready(&self) -> Result<(), String> {
+        wait_for_socket(&self.listen, READY_TIMEOUT)
+            .and_then(|_| session_io::restrict_socket_permissions(&self.listen))
+            .and_then(|_| wait_for_rpc(&self.listen, READY_TIMEOUT))
+    }
+
+    fn register(&mut self) -> Result<(), String> {
+        SessionRegistry::load_global()?.insert(SessionRecord {
+            id: self.session_id.clone(),
+            name: self.name.clone(),
+            cwd: self.cwd.clone(),
+            artifact_dir: self.artifact_dir.clone(),
+            size: self.size,
+            supervisor_pid: std::process::id(),
+            child_pid: self.child.process_id(),
+            listen: self.listen.clone(),
+        })?;
+        self.registered = true;
+        Ok(())
+    }
+
+    fn mark_ready(&self) -> Result<(), String> {
+        fs::write(&self.ready_file, b"ready").map_err(|error| {
+            format!(
+                "failed to write readiness file `{}`: {error}",
+                self.ready_file.display()
+            )
+        })
+    }
+
+    fn run_until_exit(&mut self) -> Result<(), String> {
+        loop {
+            if SUPERVISOR_SHUTDOWN.load(Ordering::Relaxed) {
+                self.kill_child();
+                break;
+            }
+
+            if self
+                .child
+                .try_wait()
+                .map_err(|error| format!("failed while polling nvim: {error}"))?
+                .is_some()
+            {
+                break;
+            }
+
+            self.apply_desired_size()?;
+            thread::sleep(Duration::from_millis(50));
+        }
+
+        Ok(())
+    }
+
+    fn apply_desired_size(&mut self) -> Result<(), String> {
+        let Some(desired_size) = self.io.read_desired_size()? else {
+            return Ok(());
+        };
+        if desired_size == current_parser_size(&self.parser)? {
+            return Ok(());
+        }
+
+        self.master
+            .resize(PtySize {
+                rows: desired_size.rows,
+                cols: desired_size.cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|error| format!("failed to resize PTY: {error}"))?;
+        let mut parser = self
+            .parser
+            .lock()
+            .map_err(|_| "failed to lock Screen parser".to_string())?;
+        parser
+            .screen_mut()
+            .set_size(desired_size.rows, desired_size.cols);
+        Ok(())
+    }
+
+    fn kill_child(&mut self) {
+        if let Some(child_pid) = self.child.process_id() {
+            unsafe {
+                libc::kill(child_pid as libc::pid_t, libc::SIGKILL);
+            }
+        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+impl Drop for SupervisorRuntime {
+    fn drop(&mut self) {
+        if self.registered
+            && let Ok(registry) = SessionRegistry::load_global()
+        {
+            let _ = registry.remove(&self.session_id);
+        }
+        let _ = fs::remove_file(&self.listen);
+        let _ = fs::remove_file(&self.pty_input_path);
+        if self.child.try_wait().ok().flatten().is_none() {
+            self.kill_child();
+        }
+    }
 }
 
 pub fn wait_until_ready(
@@ -306,14 +384,4 @@ fn socket_accepts_connections(path: &Path) -> bool {
             let _ = stream.shutdown(Shutdown::Both);
         })
         .is_ok()
-}
-
-fn kill_child(child: &mut Box<dyn portable_pty::Child + Send + Sync>) {
-    if let Some(child_pid) = child.process_id() {
-        unsafe {
-            libc::kill(child_pid as libc::pid_t, libc::SIGKILL);
-        }
-    }
-    let _ = child.kill();
-    let _ = child.wait();
 }
