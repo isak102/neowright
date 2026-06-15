@@ -16,7 +16,7 @@ Above you can see `neowright` in action with the optional `--headed` flag.
 
 Agents are good at reading files and running tests. They are much worse at understanding what happens inside an interactive Neovim UI: floating windows, completion menus, diagnostics, splits, keymaps, plugin startup, redraw timing, and configuration issues.
 
-Neowright gives agents a small yet powerful command surface for that missing layer.
+`neowright` gives agents a small yet powerful command surface for that missing layer.
 
 ## Use Case
 
@@ -97,6 +97,8 @@ neowright wait "return vim.fn.mode() == 'n'"
 neowright snapshot
 ```
 
+Snapshots are text captures of the visible terminal grid. Snapshot artifacts are written under `.neowright/` in the project where the session was opened.
+
 Open a visible remote UI for demos or human debugging:
 
 ```bash
@@ -116,14 +118,6 @@ Close the session when done:
 ```bash
 neowright close
 ```
-
-## Current Shape
-
-`neowright` runs Neovim in a PTY-backed session. Snapshots are text captures of the visible terminal grid, not pixel screenshots.
-
-Session metadata is stored globally so agents can find active sessions from any working directory. Snapshot artifacts are written under `.neowright/` in the project where the session was opened.
-
-Visible attached UIs share editor state with the Session. Multiple UIs can affect layout, especially when the visible terminal is smaller than the `neowright` PTY. Human input can race with agent input, resize events can change snapshots, focus-related plugins may observe extra UI transitions, and `:qa!` from any UI exits the shared Neovim instance.
 
 ## Development
 
