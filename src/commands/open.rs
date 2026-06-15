@@ -42,9 +42,9 @@ pub fn run(args: OpenArgs) -> Result<String, CommandFailure> {
         )
     })?;
 
-    let listen = SessionIo::nvim_listen_path(&id);
-    let ready_file = runtime_dir.join("ready");
-    let supervisor_log = runtime_dir.join("supervisor.log");
+    let listen = io.nvim_listen_path();
+    let ready_file = io.ready_file();
+    let supervisor_log = io.supervisor_log();
     let current_exe = std::env::current_exe()
         .map_err(|error| format!("failed to resolve neowright executable: {error}"))?;
 

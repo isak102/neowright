@@ -1,27 +1,10 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use unicode_width::UnicodeWidthChar;
 
 use crate::session::SizeRecord;
-
-const SOCKET_DIR: &str = "/tmp";
-
-pub fn nvim_listen_path(session_id: &str) -> PathBuf {
-    runtime_socket_path(session_id, ".sock")
-}
-
-pub fn pty_input_path(_artifact_dir: &Path, session_id: &str) -> PathBuf {
-    runtime_socket_path(session_id, "-pty.sock")
-}
-
-fn runtime_socket_path(session_id: &str, suffix: &str) -> PathBuf {
-    // Unix socket paths are constrained by sockaddr_un.sun_path. macOS has a
-    // particularly small limit, while $TMPDIR often points at a long
-    // /var/folders/... path. Keep sockets under a deliberately short base.
-    PathBuf::from(SOCKET_DIR).join(format!("neowright-{session_id}{suffix}"))
-}
 
 pub fn restrict_socket_permissions(path: &Path) -> Result<(), String> {
     fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|error| {
@@ -126,31 +109,13 @@ mod tests {
     }
 
     #[test]
-    fn runtime_socket_paths_use_short_temp_base() {
-        let session_id = "1234567890abcdef1234567890abcdef";
-
-        assert_eq!(
-            nvim_listen_path(session_id),
-            PathBuf::from("/tmp/neowright-1234567890abcdef1234567890abcdef.sock")
-        );
-        assert_eq!(
-            pty_input_path(Path::new("/very/long/project/path"), session_id),
-            PathBuf::from("/tmp/neowright-1234567890abcdef1234567890abcdef-pty.sock")
-        );
-        assert!(nvim_listen_path(session_id).as_os_str().len() < 104);
-        assert!(
-            pty_input_path(Path::new("/ignored"), session_id)
-                .as_os_str()
-                .len()
-                < 104
-        );
-    }
-
-    #[test]
     fn restrict_socket_permissions_sets_owner_only_mode() {
         use std::os::unix::net::UnixListener;
 
-        let path = runtime_socket_path(&crate::session::generate_id(), ".test.sock");
+        let path = std::env::temp_dir().join(format!(
+            "neowright-{}.test.sock",
+            crate::session::generate_id()
+        ));
         let _ = fs::remove_file(&path);
         let listener = UnixListener::bind(&path).expect("socket binds");
 
