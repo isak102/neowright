@@ -1,6 +1,9 @@
+use std::ffi::OsString;
 use std::io::{self, Write};
 
+use crate::attached_ui;
 use crate::session::SessionRecord;
+use crate::session_control::SnapshotCapture;
 
 pub fn write_success(writer: &mut impl Write, message: &str) -> io::Result<()> {
     write!(writer, "{}", status_document(message))
@@ -135,10 +138,7 @@ pub fn sent_keys(title: &str, keys: &str) -> String {
 pub fn opened_session(record: &SessionRecord) -> String {
     let mut output = String::from("Session opened.");
     output.push_str(&format!("\n- Session ID: `{}`", record.id));
-    output.push_str(&format!(
-        "\n- Session Name: `{}`",
-        record.name.as_deref().unwrap_or("(unnamed)")
-    ));
+    output.push_str(&format!("\n- Session Name: `{}`", session_name(record)));
     output.push_str(&format!("\n- Opened From: `{}`", record.cwd.display()));
     output.push_str(&format!("\n- Size: `{}`", record.size));
     output.push_str(&format!(
@@ -156,14 +156,101 @@ pub fn active_sessions(records: &[SessionRecord]) -> String {
     let mut output = String::from("Active Sessions:");
     for record in records {
         output.push_str(&format!("\n- Session ID: `{}`", record.id));
-        output.push_str(&format!(
-            "\n  Session Name: `{}`",
-            record.name.as_deref().unwrap_or("(unnamed)")
-        ));
+        output.push_str(&format!("\n  Session Name: `{}`", session_name(record)));
         output.push_str(&format!("\n  Opened From: `{}`", record.cwd.display()));
         output.push_str(&format!("\n  Size: `{}`", record.size));
     }
     output
+}
+
+pub(crate) fn snapshot(record: &SessionRecord, snapshot: &SnapshotCapture) -> String {
+    let mut document = MarkdownDocument::new();
+    document
+        .section("Snapshot")
+        .field("Session ID", &record.id)
+        .field("Session Name", session_name(record))
+        .field("Size", record.size)
+        .field("Artifact", snapshot.artifact_path.display())
+        .section("Contents")
+        .code_block("text", &snapshot.contents);
+    document.finish()
+}
+
+pub(crate) fn resized_session(record: &SessionRecord) -> String {
+    let mut document = MarkdownDocument::new();
+    document
+        .section("Resized Session")
+        .field("Session ID", &record.id)
+        .field("Session Name", session_name(record))
+        .field("Size", record.size);
+    document.finish()
+}
+
+pub(crate) fn close_report(
+    successes: &[SessionRecord],
+    failures: &[(SessionRecord, String)],
+) -> String {
+    let mut document = MarkdownDocument::new();
+    document.section("Closed Sessions");
+    if successes.is_empty() {
+        document.text("None.");
+    } else {
+        for record in successes {
+            document
+                .field("Session ID", &record.id)
+                .continuation_field("Session Name", session_name(record));
+        }
+    }
+
+    if !failures.is_empty() {
+        document.section("Failed Sessions");
+        for (record, error) in failures {
+            document
+                .field("Session ID", &record.id)
+                .continuation_field("Session Name", session_name(record))
+                .continuation_text("Error", error);
+        }
+    }
+
+    document.finish()
+}
+
+pub(crate) fn no_closed_sessions() -> String {
+    let mut document = MarkdownDocument::new();
+    document
+        .section("Closed Sessions")
+        .text("No active Sessions.");
+    document.finish()
+}
+
+pub(crate) fn attach_command(record: &SessionRecord, remote: &[OsString]) -> String {
+    let mut document = MarkdownDocument::new();
+    document
+        .section("Attach Command")
+        .field("Session ID", &record.id)
+        .field("Session Name", session_name(record))
+        .code_block("bash", &attached_ui::shell_join(remote));
+    document.finish()
+}
+
+pub(crate) fn attached_ui(
+    record: &SessionRecord,
+    terminal_command: &str,
+    terminal_source: &str,
+) -> String {
+    let mut document = MarkdownDocument::new();
+    document
+        .section("Attached UI")
+        .field("Session ID", &record.id)
+        .field("Session Name", session_name(record))
+        .field("Terminal Command", terminal_command)
+        .field("Terminal Source", terminal_source)
+        .text("Headed UI process launched.");
+    document.finish()
+}
+
+fn session_name(record: &SessionRecord) -> &str {
+    record.name.as_deref().unwrap_or("(unnamed)")
 }
 
 fn fence_for(contents: &str) -> String {

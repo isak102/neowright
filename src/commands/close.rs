@@ -1,6 +1,6 @@
 use crate::cli::CloseArgs;
 use crate::commands::CommandOutput;
-use crate::output::MarkdownDocument;
+use crate::output;
 use crate::session;
 use crate::session_control::{LiveSessionControl, SessionControl};
 
@@ -12,11 +12,7 @@ pub fn run(args: CloseArgs) -> Result<CommandOutput, String> {
     };
 
     if records.is_empty() {
-        let mut markdown = MarkdownDocument::new();
-        markdown
-            .section("Closed Sessions")
-            .text("No active Sessions.");
-        return Ok(CommandOutput::Markdown(markdown.finish()));
+        return Ok(CommandOutput::Markdown(output::no_closed_sessions()));
     }
 
     let mut successes = Vec::new();
@@ -28,34 +24,12 @@ pub fn run(args: CloseArgs) -> Result<CommandOutput, String> {
         }
     }
 
-    let mut markdown = MarkdownDocument::new();
-    markdown.section("Closed Sessions");
-    if successes.is_empty() {
-        markdown.text("None.");
-    } else {
-        for record in &successes {
-            markdown.field("Session ID", &record.id).continuation_field(
-                "Session Name",
-                record.name.as_deref().unwrap_or("(unnamed)"),
-            );
-        }
-    }
-
+    let markdown = output::close_report(&successes, &failures);
     if !failures.is_empty() {
-        markdown.section("Failed Sessions");
-        for (record, error) in failures {
-            markdown
-                .field("Session ID", &record.id)
-                .continuation_field(
-                    "Session Name",
-                    record.name.as_deref().unwrap_or("(unnamed)"),
-                )
-                .continuation_text("Error", error);
-        }
-        return Err(markdown.finish());
+        return Err(markdown);
     }
 
-    Ok(CommandOutput::Markdown(markdown.finish()))
+    Ok(CommandOutput::Markdown(markdown))
 }
 
 fn close_one(record: session::SessionRecord, force: bool) -> Result<(), String> {

@@ -1,6 +1,6 @@
 use crate::cli::ResizeArgs;
 use crate::commands::CommandOutput;
-use crate::output::MarkdownDocument;
+use crate::output;
 use crate::session_control::{LiveSessionControl, SessionControl};
 
 pub fn run(args: ResizeArgs) -> Result<CommandOutput, String> {
@@ -15,15 +15,5 @@ fn run_with_control(
     session.resize(args.size)?;
     let record = session.record();
 
-    let mut markdown = MarkdownDocument::new();
-    markdown
-        .section("Resized Session")
-        .field("Session ID", &record.id)
-        .field(
-            "Session Name",
-            record.name.as_deref().unwrap_or("(unnamed)"),
-        )
-        .field("Size", record.size);
-
-    Ok(CommandOutput::Markdown(markdown.finish()))
+    Ok(CommandOutput::Markdown(output::resized_session(record)))
 }

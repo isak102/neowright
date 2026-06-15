@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::cli::{Size, TargetSelector};
+use crate::output;
 
 pub const DEFAULT_SIZE: Size = Size {
     cols: 240,
@@ -149,7 +150,7 @@ impl SessionRegistry {
             1 => Ok(records.into_iter().next().expect("one record exists")),
             _ => Err(format!(
                 "multiple active Sessions; pass --session or --name\n\n{}",
-                active_session_list(&records)
+                output::active_sessions(&records)
             )),
         }
     }
@@ -271,20 +272,6 @@ fn registry_path() -> Result<PathBuf, String> {
     };
 
     Ok(base.join("neowright/registry.json"))
-}
-
-fn active_session_list(records: &[SessionRecord]) -> String {
-    let mut output = String::from("Active Sessions:");
-    for record in records {
-        output.push_str(&format!(
-            "\n- Session ID: `{}`\n  Session Name: `{}`\n  Opened From: `{}`\n  Size: `{}`",
-            record.id,
-            record.name.as_deref().unwrap_or("(unnamed)"),
-            record.cwd.display(),
-            record.size
-        ));
-    }
-    output
 }
 
 fn ensure_name_available(
