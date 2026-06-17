@@ -8,7 +8,7 @@ test:
 	cargo test
 
 install:
-	cargo install --path . && neowright skills install --force
+	cargo install --path . && neowright skills install
 
 release part:
 	nix run nixpkgs#bump-my-version -- bump {{part}}

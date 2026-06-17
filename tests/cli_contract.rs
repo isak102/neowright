@@ -1604,29 +1604,7 @@ fn skills_install_local_uses_project_agents_directory() {
 }
 
 #[test]
-fn skills_install_does_not_overwrite_existing_skill() {
-    let home = TempDir::new().expect("home dir");
-    let project = TempDir::new().expect("project dir");
-    let skill_path = home.path().join(".agents/skills/neowright");
-    std::fs::create_dir_all(&skill_path).expect("existing skill dir");
-    std::fs::write(skill_path.join("SKILL.md"), "custom skill").expect("custom skill");
-
-    neowright()
-        .args(["skills", "install"])
-        .current_dir(project.path())
-        .env("HOME", home.path())
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("### Error"))
-        .stderr(predicate::str::contains("already exists"))
-        .stderr(predicate::str::contains("--force"));
-
-    let contents = std::fs::read_to_string(skill_path.join("SKILL.md")).expect("skill contents");
-    assert_eq!(contents, "custom skill");
-}
-
-#[test]
-fn skills_install_force_overwrites_existing_skill() {
+fn skills_install_overwrites_existing_skill() {
     let home = TempDir::new().expect("home dir");
     let project = TempDir::new().expect("project dir");
     let skill_path = home.path().join(".agents/skills/neowright");
@@ -1635,12 +1613,13 @@ fn skills_install_force_overwrites_existing_skill() {
     std::fs::write(skill_path.join("CUSTOM.md"), "custom file").expect("custom file");
 
     neowright()
-        .args(["skills", "install", "--force"])
+        .args(["skills", "install"])
         .current_dir(project.path())
         .env("HOME", home.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("Scope: `global`"));
+        .stdout(predicate::str::contains("Scope: `global`"))
+        .stdout(predicate::str::contains("Overwrote existing skill files"));
 
     assert_neowright_skill_installed(&skill_path);
     assert_not_exists(skill_path.join("CUSTOM.md"));

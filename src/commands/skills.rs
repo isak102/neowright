@@ -16,15 +16,9 @@ pub fn run(args: SkillsArgs) -> Result<String, String> {
 
 fn install(args: SkillsInstallArgs) -> Result<String, String> {
     let (scope, target) = install_target(args.local)?;
+    let overwrote = target.exists();
 
-    if target.exists() {
-        if !args.force {
-            return Err(format!(
-                "Neowright Agent Skill already exists at `{}`. Re-run with `--force` to overwrite it.",
-                target.display()
-            ));
-        }
-
+    if overwrote {
         fs::remove_dir_all(&target).map_err(|error| {
             format!(
                 "failed to remove existing Neowright Agent Skill `{}`: {error}",
@@ -59,10 +53,16 @@ fn install(args: SkillsInstallArgs) -> Result<String, String> {
         })?;
     }
 
+    let overwrite_message = if overwrote {
+        "\n- Overwrote existing skill files"
+    } else {
+        ""
+    };
+
     Ok(format!(
         "Installed Neowright Agent Skill.\n\n- Scope: `{scope}`\n- Path: `{}`",
-        target.display()
-    ))
+        target.display(),
+    ) + overwrite_message)
 }
 
 fn install_target(local: bool) -> Result<(&'static str, PathBuf), String> {

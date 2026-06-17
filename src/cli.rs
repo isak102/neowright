@@ -244,9 +244,6 @@ pub struct SkillsInstallArgs {
 
     #[arg(long, help = "Install skills into this repository")]
     pub local: bool,
-
-    #[arg(long, help = "Overwrite existing skill files")]
-    pub force: bool,
 }
 
 #[derive(Debug, Args)]
