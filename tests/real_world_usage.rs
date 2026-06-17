@@ -220,6 +220,222 @@ fn agent_can_debug_diagnostics_without_lsp_or_plugins() {
 }
 
 #[test]
+fn completion_popup_is_visible_and_selectable() {
+    require_nvim();
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    open_session(state.path(), project.path(), "complete", &["-u", "NONE"]);
+    neowright()
+        .args(["keys", "--name", "complete", "i"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "complete",
+        "return vim.api.nvim_get_mode().mode == 'i'",
+    );
+
+    neowright()
+        .args([
+            "eval",
+            "--name",
+            "complete",
+            "vim.fn.complete(1, {'neowright-alpha', 'neowright-beta', 'neowright-gamma'})",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(state.path(), "complete", "return vim.fn.pumvisible() == 1");
+
+    let snapshot = snapshot_output(state.path(), "complete");
+    assert_contains(&snapshot, "neowright-alpha");
+    assert_contains(&snapshot, "neowright-beta");
+
+    neowright()
+        .args(["keys", "--name", "complete", "<C-n>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "complete",
+        "return vim.fn.pumvisible() == 1 and vim.v.completed_item.word == 'neowright-beta'",
+    );
+}
+
+#[test]
+fn async_plugin_like_float_update_is_captured() {
+    require_nvim();
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    open_session(state.path(), project.path(), "async-ui", &["-u", "NONE"]);
+    neowright()
+        .args([
+            "eval",
+            "--name",
+            "async-ui",
+            "vim.defer_fn(function() local b=vim.api.nvim_create_buf(false,true); vim.api.nvim_buf_set_lines(b,0,-1,false,{'ASYNC PLUGIN FLOAT','ready after startup'}); local w=vim.api.nvim_open_win(b,false,{relative='editor',row=3,col=8,width=28,height=3,style='minimal',border='rounded'}); vim.g.neowright_async_float=w end, 100)",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "async-ui",
+        "return vim.g.neowright_async_float ~= nil and vim.api.nvim_win_is_valid(vim.g.neowright_async_float)",
+    );
+
+    let snapshot = snapshot_output(state.path(), "async-ui");
+    assert_contains(&snapshot, "ASYNC PLUGIN FLOAT");
+    assert_contains(&snapshot, "ready after startup");
+}
+
+#[test]
+fn diagnostic_float_signs_and_virtual_text_are_inspectable() {
+    require_nvim();
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    std::fs::write(
+        project.path().join("diagnostic.lua"),
+        "local answer =\nlocal unused = 1\n",
+    )
+    .expect("diagnostic file");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    open_session(
+        state.path(),
+        project.path(),
+        "diag-float",
+        &["-u", "NONE", "diagnostic.lua"],
+    );
+    neowright()
+        .args([
+            "eval",
+            "--name",
+            "diag-float",
+            "vim.diagnostic.config({virtual_text=true,signs=true,underline=true}); local ns=vim.api.nvim_create_namespace('neowright-rich-diagnostics'); vim.diagnostic.set(ns,0,{{lnum=0,col=13,severity=vim.diagnostic.severity.ERROR,message='expected expression after equals'},{lnum=1,col=6,severity=vim.diagnostic.severity.WARN,message='unused local variable'}}); vim.api.nvim_win_set_cursor(0,{1,13}); vim.diagnostic.open_float(nil,{scope='line',focus=false,border='single'})",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "diag-float",
+        "local floats=0; for _,w in ipairs(vim.api.nvim_list_wins()) do if vim.api.nvim_win_get_config(w).relative ~= '' then floats=floats+1 end end; return #vim.diagnostic.get(0) == 2 and floats > 0",
+    );
+
+    let diagnostic = eval_raw(
+        state.path(),
+        "diag-float",
+        "local ds=vim.diagnostic.get(0); return {count=#ds, first=ds[1].message, second=ds[2].message, severity=ds[1].severity}",
+    );
+    assert_eq!(
+        diagnostic,
+        "{\"count\":2,\"first\":\"expected expression after equals\",\"second\":\"unused local variable\",\"severity\":1}\n"
+    );
+    let snapshot = snapshot_output(state.path(), "diag-float");
+    assert_contains(&snapshot, "expected expression after equals");
+}
+
+#[test]
+fn resize_preserves_complex_ui_and_input() {
+    require_nvim();
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    std::fs::write(project.path().join("first.txt"), "needle one\n").expect("first file");
+    std::fs::write(project.path().join("second.txt"), "needle two\n").expect("second file");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    open_session(
+        state.path(),
+        project.path(),
+        "complex-resize",
+        &["-u", "NONE", "first.txt"],
+    );
+    neowright()
+        .args([
+            "exec",
+            "--name",
+            "complex-resize",
+            "vsplit second.txt | vimgrep /needle/ *.txt | copen",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    neowright()
+        .args([
+            "eval",
+            "--name",
+            "complex-resize",
+            "local b=vim.api.nvim_create_buf(false,true); vim.api.nvim_buf_set_lines(b,0,-1,false,{'RESIZE FLOAT','still visible'}); local w=vim.api.nvim_open_win(b,false,{relative='editor',row=2,col=5,width=20,height=3,style='minimal',border='single'}); vim.g.neowright_resize_float=w",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "complex-resize",
+        "return #vim.api.nvim_tabpage_list_wins(0) >= 3 and #vim.fn.getqflist() == 2 and vim.api.nvim_win_is_valid(vim.g.neowright_resize_float)",
+    );
+
+    neowright()
+        .args(["resize", "--name", "complex-resize", "50x12"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "complex-resize",
+        "return vim.o.columns == 50 and vim.o.lines == 12 and vim.api.nvim_win_is_valid(vim.g.neowright_resize_float)",
+    );
+    let small_snapshot = snapshot_output(state.path(), "complex-resize");
+    assert_snapshot_dimensions(&small_snapshot, 50, 12);
+    assert_contains(&small_snapshot, "RESIZE FLOAT");
+
+    neowright()
+        .args(["resize", "--name", "complex-resize", "90x24"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    neowright()
+        .args(["exec", "--name", "complex-resize", "wincmd t"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    neowright()
+        .args(["keys", "--name", "complex-resize", "i after resize<Esc>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "complex-resize",
+        "return vim.o.columns == 90 and vim.o.lines == 24 and vim.api.nvim_get_current_line():find('after resize') ~= nil",
+    );
+    let large_snapshot = snapshot_output(state.path(), "complex-resize");
+    assert_snapshot_dimensions(&large_snapshot, 90, 24);
+    assert_contains(&large_snapshot, "after resize");
+    assert_contains(&large_snapshot, "still visible");
+}
+
+#[test]
 fn global_registry_commands_can_run_from_another_directory_but_artifacts_stay_with_project() {
     require_nvim();
 
@@ -840,6 +1056,46 @@ fn pty_keys_dismiss_hit_enter_prompt_and_restore_rpc() {
     assert_eq!(
         eval_raw(state.path(), "pty-hit-enter", "return 'rpc restored'"),
         "rpc restored\n"
+    );
+}
+
+#[test]
+fn pty_keys_drive_search_prompt_and_escape_cleanly() {
+    require_nvim();
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    open_session(state.path(), project.path(), "pty-search", &["-u", "NONE"]);
+    neowright()
+        .args([
+            "keys",
+            "--name",
+            "pty-search",
+            "--pty",
+            "ifirst line<CR>needle target<Esc>gg/needle<CR>",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "pty-search",
+        "return vim.api.nvim_get_current_line() == 'needle target' and vim.fn.mode() == 'n'",
+    );
+
+    neowright()
+        .args(["keys", "--name", "pty-search", "--pty", "/not-present<Esc>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "pty-search",
+        "return vim.fn.mode() == 'n' and vim.api.nvim_get_current_line() == 'needle target'",
     );
 }
 

@@ -985,6 +985,107 @@ fn supervisor_sigterm_terminates_child_nvim_when_nvim_exists() {
 }
 
 #[test]
+fn commands_report_markdown_error_after_child_nvim_exits_when_nvim_exists() {
+    require_nvim();
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args(["open", "--name", "crash", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    let records = registry_records(state.path());
+    let child_pid = records[0]
+        .get("child_pid")
+        .and_then(Value::as_u64)
+        .expect("child pid");
+    unsafe {
+        libc::kill(child_pid as libc::pid_t, libc::SIGKILL);
+    }
+
+    wait_until(
+        std::time::Duration::from_secs(5),
+        "commands against killed child to fail",
+        || {
+            let output = run_neowright_with_timeout(
+                &["snapshot", "--name", "crash"],
+                state.path(),
+                std::time::Duration::from_secs(2),
+            );
+            !output.status.success()
+        },
+    );
+
+    let output = run_neowright_with_timeout(
+        &["snapshot", "--name", "crash"],
+        state.path(),
+        std::time::Duration::from_secs(2),
+    );
+    assert!(
+        !output.status.success(),
+        "snapshot should fail after child Neovim exits\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_contains(&String::from_utf8_lossy(&output.stderr), "### Error");
+}
+
+#[test]
+#[cfg(unix)]
+fn sessions_work_from_paths_with_spaces_unicode_and_symlinks_when_nvim_exists() {
+    require_nvim();
+
+    let state = TempDir::new().expect("state dir");
+    let root = TempDir::new().expect("root dir");
+    let project = root.path().join("project with spaces 表");
+    let link = root.path().join("linked project");
+    std::fs::create_dir(&project).expect("project dir");
+    std::os::unix::fs::symlink(&project, &link).expect("project symlink");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args(["open", "--name", "odd-path", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(&link)
+        .assert()
+        .success();
+
+    neowright()
+        .args(["keys", "--name", "odd-path", "ipath survives<Esc>"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(root.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["snapshot", "--name", "odd-path"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(root.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("path survives"));
+
+    let records = registry_records(state.path());
+    assert_eq!(records.len(), 1);
+    assert_eq!(
+        std::path::Path::new(records[0].get("cwd").and_then(Value::as_str).expect("cwd"))
+            .canonicalize()
+            .expect("registry cwd canonicalizes"),
+        project.canonicalize().expect("project canonicalizes")
+    );
+    assert_is_dir(project.join(".neowright/snapshots"));
+}
+
+#[test]
 fn open_uses_default_size_and_writes_registry_when_nvim_exists() {
     require_nvim();
 
