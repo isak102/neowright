@@ -380,6 +380,16 @@ fn snapshot_writes_timestamped_plain_text_artifact_when_nvim_exists() {
         .assert()
         .success();
 
+    wait_until(
+        std::time::Duration::from_secs(5),
+        "keys to appear in buffer",
+        || {
+            let records = registry_records(state.path());
+            let screen_path = session_screen_path(&records[0]);
+            std::fs::read_to_string(&screen_path).is_ok_and(|contents| contents.contains("hello"))
+        },
+    );
+
     let output = neowright()
         .args(["snapshot", "--name", "main"])
         .env("XDG_STATE_HOME", state.path())

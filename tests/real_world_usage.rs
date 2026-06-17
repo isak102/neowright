@@ -409,15 +409,19 @@ fn resize_preserves_complex_ui_and_input() {
         "complex-resize",
         "return vim.o.columns == 50 and vim.o.lines == 12 and vim.api.nvim_win_is_valid(vim.g.neowright_resize_float)",
     );
-    let small_snapshot = snapshot_output(state.path(), "complex-resize");
+    let small_snapshot = wait_for_snapshot_contains(state.path(), "complex-resize", "RESIZE FLOAT");
     assert_snapshot_dimensions(&small_snapshot, 50, 12);
-    assert_contains(&small_snapshot, "RESIZE FLOAT");
 
     neowright()
         .args(["resize", "--name", "complex-resize", "90x24"])
         .env("XDG_STATE_HOME", state.path())
         .assert()
         .success();
+    wait_for(
+        state.path(),
+        "complex-resize",
+        "return vim.o.columns == 90 and vim.o.lines == 24",
+    );
     neowright()
         .args(["exec", "--name", "complex-resize", "wincmd t"])
         .env("XDG_STATE_HOME", state.path())
@@ -428,14 +432,8 @@ fn resize_preserves_complex_ui_and_input() {
         .env("XDG_STATE_HOME", state.path())
         .assert()
         .success();
-    wait_for(
-        state.path(),
-        "complex-resize",
-        "return vim.o.columns == 90 and vim.o.lines == 24 and vim.api.nvim_get_current_line():find('after resize') ~= nil",
-    );
-    let large_snapshot = snapshot_output(state.path(), "complex-resize");
+    let large_snapshot = wait_for_snapshot_contains(state.path(), "complex-resize", "after resize");
     assert_snapshot_dimensions(&large_snapshot, 90, 24);
-    assert_contains(&large_snapshot, "after resize");
     assert_contains(&large_snapshot, "still visible");
 }
 
@@ -1304,6 +1302,11 @@ fn pty_keys_still_work_after_resize() {
         .env("XDG_STATE_HOME", state.path())
         .assert()
         .success();
+    wait_for(
+        state.path(),
+        "pty-resize",
+        "return vim.o.columns == 50 and vim.o.lines == 12",
+    );
     neowright()
         .args([
             "keys",
@@ -1315,12 +1318,6 @@ fn pty_keys_still_work_after_resize() {
         .env("XDG_STATE_HOME", state.path())
         .assert()
         .success();
-    wait_for(
-        state.path(),
-        "pty-resize",
-        "return vim.api.nvim_get_current_line() == 'pty after resize'",
-    );
-    let snapshot = snapshot_output(state.path(), "pty-resize");
-    assert_contains(&snapshot, "pty after resize");
+    let snapshot = wait_for_snapshot_contains(state.path(), "pty-resize", "pty after resize");
     assert_snapshot_dimensions(&snapshot, 50, 12);
 }
