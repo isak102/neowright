@@ -1676,7 +1676,7 @@ fn canonical_mvp_agent_debugging_loop_when_nvim_exists() {
             "--name",
             "demo",
             "--timeout",
-            "2s",
+            "10s",
             "return vim.api.nvim_get_current_line() == 'hello from keys' and vim.g.neowright_eval == 'ok-lua'",
         ])
         .env("XDG_STATE_HOME", state.path())

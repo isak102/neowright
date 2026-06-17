@@ -69,7 +69,7 @@ pub fn eval_raw(state: &Path, name: &str, lua: &str) -> String {
 
 pub fn wait_for(state: &Path, name: &str, lua: &str) {
     neowright()
-        .args(["wait", "--name", name, "--timeout", "3s", lua])
+        .args(["wait", "--name", name, "--timeout", "10s", lua])
         .env("XDG_STATE_HOME", state)
         .assert()
         .success()

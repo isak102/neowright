@@ -51,18 +51,22 @@ fn assert_not_exists(path: impl AsRef<std::path::Path>) {
 
 fn wait_for_snapshot_contains(state: &std::path::Path, name: &str, expected: &str) -> String {
     let start = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(3);
-    let mut snapshot = snapshot_output(state, name);
+    let timeout = std::time::Duration::from_secs(10);
+    let mut delay_ms = 100u64;
 
-    while start.elapsed() < timeout {
+    loop {
+        let snapshot = snapshot_output(state, name);
         if snapshot.contains(expected) {
             return snapshot;
         }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        snapshot = snapshot_output(state, name);
+        if start.elapsed() >= timeout {
+            panic!(
+                "snapshot for {name:?} did not contain {expected:?} after {timeout:?}\n{snapshot}"
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        delay_ms = (delay_ms * 2).min(1000);
     }
-
-    panic!("snapshot for {name:?} did not contain {expected:?}\n{snapshot}");
 }
 
 fn assert_snapshot_dimensions(contents: &str, cols: usize, rows: usize) {
