@@ -1202,6 +1202,89 @@ fn pty_keys_reject_unsupported_notation_without_buffer_mutation() {
 }
 
 #[test]
+fn snapshot_captures_insert_and_commandline_modes() {
+    require_nvim();
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    open_session(state.path(), project.path(), "modes-snap", &["-u", "NONE"]);
+    neowright()
+        .args(["keys", "--name", "modes-snap", "iinsert mode text"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "modes-snap",
+        "return vim.api.nvim_get_mode().mode == 'i' and vim.api.nvim_get_current_line() == 'insert mode text'",
+    );
+    let insert_snapshot = snapshot_output(state.path(), "modes-snap");
+    assert_contains(&insert_snapshot, "insert mode text");
+
+    neowright()
+        .args(["keys", "--name", "modes-snap", "--pty", ":set wrap<Esc>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(state.path(), "modes-snap", "return vim.fn.mode() == 'n'");
+
+    neowright()
+        .args(["keys", "--name", "modes-snap", "--pty", ":set nu"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let cmdline_snapshot = snapshot_output(state.path(), "modes-snap");
+    assert_contains(&cmdline_snapshot, "set nu");
+}
+
+#[test]
+fn resize_preserves_insert_mode_and_continued_typing() {
+    require_nvim();
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    open_session(state.path(), project.path(), "rpl-insert", &["-u", "NONE"]);
+    neowright()
+        .args(["keys", "--name", "rpl-insert", "ibefore resize,"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "rpl-insert",
+        "return vim.api.nvim_get_mode().mode == 'i'",
+    );
+
+    neowright()
+        .args(["resize", "--name", "rpl-insert", "55x14"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    neowright()
+        .args(["keys", "--name", "rpl-insert", " after resize<Esc>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    wait_for(
+        state.path(),
+        "rpl-insert",
+        "return vim.api.nvim_get_current_line() == 'before resize, after resize'",
+    );
+    let snapshot = snapshot_output(state.path(), "rpl-insert");
+    assert_contains(&snapshot, "before resize, after resize");
+    assert_snapshot_dimensions(&snapshot, 55, 14);
+}
+
+#[test]
 fn pty_keys_still_work_after_resize() {
     require_nvim();
 

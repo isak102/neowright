@@ -151,6 +151,17 @@ fn malformed_size_returns_markdown_error() {
 }
 
 #[test]
+fn invalid_resize_sizes_return_markdown_errors() {
+    for size in ["0x10", "10x0", "-1x10", "10x", "10x10x10"] {
+        neowright()
+            .args(["resize", "--session", "abc", size])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("### Error"));
+    }
+}
+
+#[test]
 fn malformed_duration_returns_markdown_error() {
     neowright()
         .args([
@@ -1313,6 +1324,145 @@ fn target_resolution_supports_session_id_and_name_when_nvim_exists() {
         .env("XDG_STATE_HOME", state.path())
         .assert()
         .success();
+}
+
+#[test]
+fn single_unnamed_session_can_be_targeted_implicitly_when_nvim_exists() {
+    require_nvim();
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args(["open", "--size", "45x9", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["keys", "iimplicit target<Esc>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["eval", "--raw", "return vim.api.nvim_get_current_line()"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match("^implicit target\n$").unwrap());
+
+    neowright()
+        .arg("snapshot")
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("### Snapshot"))
+        .stdout(predicate::str::contains("Size: `45x9`"))
+        .stdout(predicate::str::contains("implicit target"));
+
+    neowright()
+        .args(["close", "--force"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+    assert_eq!(registry_records(state.path()), Vec::<Value>::new());
+}
+
+#[test]
+fn eval_formats_basic_edge_values_when_nvim_exists() {
+    require_nvim();
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args(["open", "--name", "values", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+
+    neowright()
+        .args(["eval", "--name", "values", "return nil"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("```text\nnil\n```"));
+
+    neowright()
+        .args(["eval", "--name", "values", "return false"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("```text\nfalse\n```"));
+
+    neowright()
+        .args([
+            "eval",
+            "--name",
+            "values",
+            "return { nested = { ok = true }, list = { 1, 'two' } }",
+        ])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("nested ="))
+        .stdout(predicate::str::contains("list ="))
+        .stdout(predicate::str::contains("ok = true"));
+
+    neowright()
+        .args(["eval", "--name", "values", "--raw", "return 'payload only'"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match("^payload only\n$").unwrap());
+}
+
+#[test]
+fn rapid_snapshots_write_unique_artifacts_when_nvim_exists() {
+    require_nvim();
+
+    let state = TempDir::new().expect("state dir");
+    let project = TempDir::new().expect("project dir");
+    let _cleanup = SupervisorCleanup {
+        state_home: state.path(),
+    };
+
+    neowright()
+        .args(["open", "--name", "snapshots", "--", "-u", "NONE"])
+        .env("XDG_STATE_HOME", state.path())
+        .current_dir(project.path())
+        .assert()
+        .success();
+    neowright()
+        .args(["keys", "--name", "snapshots", "irapid snapshot text<Esc>"])
+        .env("XDG_STATE_HOME", state.path())
+        .assert()
+        .success();
+
+    for _ in 0..3 {
+        neowright()
+            .args(["snapshot", "--name", "snapshots"])
+            .env("XDG_STATE_HOME", state.path())
+            .assert()
+            .success();
+    }
+
+    let snapshots = snapshot_files(&project.path().join(".neowright/snapshots"));
+    assert_eq!(snapshots.len(), 3);
+    let names = snapshots
+        .iter()
+        .map(|path| path.file_name().expect("filename").to_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(names.len(), 3, "snapshot artifact names must be unique");
 }
 
 #[test]
