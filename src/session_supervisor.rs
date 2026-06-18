@@ -10,10 +10,10 @@ use std::time::{Duration, Instant};
 
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
-use crate::cli::SessionSupervisorArgs;
+use crate::cli::{SessionSupervisorArgs, Size};
 use crate::nvim::{NvimClient, NvimValue};
 use crate::screen;
-use crate::session::{SessionRecord, SessionRegistry, SizeRecord};
+use crate::session::{SessionRecord, SessionRegistry};
 use crate::session_io::{self, SessionIo};
 
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -38,7 +38,7 @@ struct SupervisorRuntime {
     artifact_dir: std::path::PathBuf,
     listen: std::path::PathBuf,
     ready_file: std::path::PathBuf,
-    size: SizeRecord,
+    size: Size,
     master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
     io: SessionIo,
@@ -76,7 +76,7 @@ impl SupervisorRuntime {
             .map_err(|error| format!("failed to start nvim: {error}"))?;
         drop(pair.slave);
 
-        let size = SizeRecord::from(args.size);
+        let size = args.size;
         let io = SessionIo::new(args.session.clone(), args.artifact_dir.clone());
         let pty_input_path = io.pty_input_path();
         let _ = fs::remove_file(&pty_input_path);
@@ -302,7 +302,7 @@ fn spawn_pty_input_listener(
 fn persist_current_screen(
     parser: &Arc<Mutex<vt100::Parser>>,
     io: &SessionIo,
-    size: SizeRecord,
+    size: Size,
 ) -> Result<(), String> {
     let parser = parser
         .lock()
@@ -310,12 +310,12 @@ fn persist_current_screen(
     io.write_latest_screen(&screen::snapshot_text(&parser, size))
 }
 
-fn parser_size(parser: &vt100::Parser) -> SizeRecord {
+fn parser_size(parser: &vt100::Parser) -> Size {
     let (rows, cols) = parser.screen().size();
-    SizeRecord { cols, rows }
+    Size { cols, rows }
 }
 
-fn current_parser_size(parser: &Arc<Mutex<vt100::Parser>>) -> Result<SizeRecord, String> {
+fn current_parser_size(parser: &Arc<Mutex<vt100::Parser>>) -> Result<Size, String> {
     let parser = parser
         .lock()
         .map_err(|_| "failed to lock Screen parser".to_string())?;

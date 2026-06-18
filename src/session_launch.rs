@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 
 use crate::cli::{SessionSupervisorArgs, Size};
 use crate::session::{
-    SessionRecord, SessionRegistry, SizeRecord, artifact_dir_for, ensure_artifact_dir, generate_id,
+    SessionRecord, SessionRegistry, artifact_dir_for, ensure_artifact_dir, generate_id,
 };
 use crate::session_io::SessionIo;
 use crate::session_supervisor;
@@ -58,7 +58,7 @@ pub(crate) fn open_session(request: OpenSessionRequest) -> Result<SessionRecord,
         name: request.name,
         cwd,
         artifact_dir,
-        size: SizeRecord::from(request.size),
+        size: request.size,
         supervisor_pid: supervisor.id(),
         child_pid: None,
         listen,

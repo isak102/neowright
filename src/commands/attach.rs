@@ -2,7 +2,7 @@ use crate::attached_ui;
 use crate::cli::AttachArgs;
 use crate::commands::CommandOutput;
 use crate::output;
-use crate::session_control::{LiveSessionControl, SessionControl};
+use crate::session_control::LiveSessionControl;
 
 pub fn run(args: AttachArgs) -> Result<CommandOutput, String> {
     let launch = if args.print_command {

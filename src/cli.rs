@@ -4,6 +4,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -131,12 +132,6 @@ pub struct AttachArgs {
         help = "Print the resolved nvim remote-ui command instead of launching it"
     )]
     pub print_command: bool,
-}
-
-#[derive(Debug, Args)]
-pub struct TargetArgs {
-    #[command(flatten)]
-    pub target: TargetSelector,
 }
 
 #[derive(Debug, Args)]
@@ -270,74 +265,27 @@ pub enum TerminalPresetDetection {
     TermProgramContains(&'static str),
 }
 
-macro_rules! terminal_presets {
-    (
-        $(
-            $variant:ident {
-                name: $name:literal,
-                aliases: [$($alias:literal),* $(,)?],
-                command: $command:literal,
-                detection: [$($detection:expr),+ $(,)?] $(,)?
-            }
-        ),+ $(,)?
-    ) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        pub enum TerminalPreset {
-            $($variant),+
-        }
-
-        pub const TERMINAL_PRESETS: &[TerminalPresetSpec] = &[
-            $(
-                TerminalPresetSpec {
-                    preset: TerminalPreset::$variant,
-                    name: $name,
-                    aliases: &[$($alias),*],
-                    command: $command,
-                    detection: &[$($detection),+],
-                }
-            ),+
-        ];
-
-        pub fn terminal_preset_spec(preset: TerminalPreset) -> &'static TerminalPresetSpec {
-            TERMINAL_PRESETS
-                .iter()
-                .find(|spec| spec.preset == preset)
-                .expect("terminal preset macro generated matching enum and specs")
-        }
-
-        impl std::fmt::Display for TerminalPreset {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{}", terminal_preset_spec(*self).name)
-            }
-        }
-
-        impl ValueEnum for TerminalPreset {
-            fn value_variants<'a>() -> &'a [Self] {
-                const VARIANTS: &[TerminalPreset] = &[$(TerminalPreset::$variant),+];
-                VARIANTS
-            }
-
-            fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-                let spec = terminal_preset_spec(*self);
-                Some(clap::builder::PossibleValue::new(spec.name).aliases(spec.aliases))
-            }
-        }
-    };
-
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalPreset {
+    Alacritty,
+    Ghostty,
+    Iterm,
 }
 
-terminal_presets! {
-    Alacritty {
+pub const TERMINAL_PRESETS: &[TerminalPresetSpec] = &[
+    TerminalPresetSpec {
+        preset: TerminalPreset::Alacritty,
         name: "alacritty",
-        aliases: [],
+        aliases: &[],
         command: "alacritty -e",
-        detection: [TerminalPresetDetection::EnvPresent("ALACRITTY_WINDOW_ID")],
+        detection: &[TerminalPresetDetection::EnvPresent("ALACRITTY_WINDOW_ID")],
     },
-    Ghostty {
+    TerminalPresetSpec {
+        preset: TerminalPreset::Ghostty,
         name: "ghostty",
-        aliases: [],
+        aliases: &[],
         command: "ghostty -e",
-        detection: [
+        detection: &[
             TerminalPresetDetection::TermProgramContains("ghostty"),
             TerminalPresetDetection::EnvEquals("TERMINAL", "ghostty"),
             TerminalPresetDetection::EnvPresent("GHOSTTY_BIN_DIR"),
@@ -345,12 +293,42 @@ terminal_presets! {
             TerminalPresetDetection::EnvEquals("__CFBundleIdentifier", "com.mitchellh.ghostty"),
         ],
     },
-    Iterm {
+    TerminalPresetSpec {
+        preset: TerminalPreset::Iterm,
         name: "iterm",
-        aliases: ["iterm2"],
+        aliases: &["iterm2"],
         command: "osascript -e 'tell application \"iTerm2\" to create window with default profile command \"{}\"'",
-        detection: [TerminalPresetDetection::TermProgramContains("iterm")],
+        detection: &[TerminalPresetDetection::TermProgramContains("iterm")],
     },
+];
+
+pub fn terminal_preset_spec(preset: TerminalPreset) -> &'static TerminalPresetSpec {
+    TERMINAL_PRESETS
+        .iter()
+        .find(|spec| spec.preset == preset)
+        .expect("terminal preset exists")
+}
+
+impl std::fmt::Display for TerminalPreset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", terminal_preset_spec(*self).name)
+    }
+}
+
+impl ValueEnum for TerminalPreset {
+    fn value_variants<'a>() -> &'a [Self] {
+        const VARIANTS: &[TerminalPreset] = &[
+            TerminalPreset::Alacritty,
+            TerminalPreset::Ghostty,
+            TerminalPreset::Iterm,
+        ];
+        VARIANTS
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        let spec = terminal_preset_spec(*self);
+        Some(clap::builder::PossibleValue::new(spec.name).aliases(spec.aliases))
+    }
 }
 
 pub fn supported_terminal_preset_names() -> String {
@@ -361,7 +339,7 @@ pub fn supported_terminal_preset_names() -> String {
         .join(", ")
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Size {
     pub cols: u16,
     pub rows: u16,
@@ -422,19 +400,6 @@ pub fn parse_duration(value: &str) -> Result<Duration, String> {
     }
 
     Err("duration must use ms or s, for example 500ms or 5s".to_string())
-}
-
-pub fn parse_terminal_preset(value: &str) -> Result<TerminalPreset, String> {
-    for spec in TERMINAL_PRESETS {
-        if value == spec.name || spec.aliases.contains(&value) {
-            return Ok(spec.preset);
-        }
-    }
-
-    Err(format!(
-        "terminal preset must be one of: {}",
-        supported_terminal_preset_names()
-    ))
 }
 
 #[cfg(test)]

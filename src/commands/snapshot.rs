@@ -1,14 +1,14 @@
 use crate::cli::SnapshotArgs;
 use crate::commands::CommandOutput;
 use crate::output;
-use crate::session_control::{LiveSessionControl, SessionControl};
+use crate::session_control::LiveSessionControl;
 
 pub fn run(args: SnapshotArgs) -> Result<CommandOutput, String> {
     let session = LiveSessionControl::resolve(&args.target)?;
     run_with_control(&session)
 }
 
-fn run_with_control(session: &impl SessionControl) -> Result<CommandOutput, String> {
+fn run_with_control(session: &LiveSessionControl) -> Result<CommandOutput, String> {
     let record = session.record();
     let snapshot = session.capture_snapshot()?;
 

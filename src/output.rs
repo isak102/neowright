@@ -330,7 +330,7 @@ mod tests {
             name: Some("main".to_string()),
             cwd: "/tmp/project".into(),
             artifact_dir: "/tmp/project/.neowright".into(),
-            size: crate::session::SizeRecord { cols: 80, rows: 24 },
+            size: crate::cli::Size { cols: 80, rows: 24 },
             supervisor_pid: 1,
             child_pid: Some(2),
             listen: "/tmp/neowright-abc.sock".into(),

@@ -2,7 +2,7 @@ use crate::cli::CloseArgs;
 use crate::commands::CommandOutput;
 use crate::output;
 use crate::session;
-use crate::session_control::{LiveSessionControl, SessionControl};
+use crate::session_control::LiveSessionControl;
 
 pub fn run(args: CloseArgs) -> Result<CommandOutput, String> {
     let records = if args.all {

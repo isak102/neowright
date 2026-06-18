@@ -1,7 +1,7 @@
 use crate::cli::ExecArgs;
 use crate::commands::CommandOutput;
 use crate::output;
-use crate::session_control::{LiveSessionControl, SessionControl};
+use crate::session_control::LiveSessionControl;
 
 pub fn run(args: ExecArgs) -> Result<CommandOutput, String> {
     let mut session = LiveSessionControl::resolve(&args.target)?;
@@ -10,7 +10,7 @@ pub fn run(args: ExecArgs) -> Result<CommandOutput, String> {
 
 fn run_with_control(
     args: ExecArgs,
-    session: &mut impl SessionControl,
+    session: &mut LiveSessionControl,
 ) -> Result<CommandOutput, String> {
     let command = args.command.strip_prefix(':').unwrap_or(&args.command);
     let output = session.exec(command)?;

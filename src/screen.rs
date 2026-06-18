@@ -4,7 +4,7 @@ use std::path::Path;
 
 use unicode_width::UnicodeWidthChar;
 
-use crate::session::SizeRecord;
+use crate::cli::Size;
 
 pub fn restrict_socket_permissions(path: &Path) -> Result<(), String> {
     fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|error| {
@@ -15,15 +15,15 @@ pub fn restrict_socket_permissions(path: &Path) -> Result<(), String> {
     })
 }
 
-pub fn parser_for(size: SizeRecord) -> vt100::Parser {
+pub fn parser_for(size: Size) -> vt100::Parser {
     vt100::Parser::new(size.rows, size.cols, 0)
 }
 
-pub fn snapshot_text(parser: &vt100::Parser, size: SizeRecord) -> String {
+pub fn snapshot_text(parser: &vt100::Parser, size: Size) -> String {
     normalize_lines(parser.screen().rows(0, size.cols), size)
 }
 
-pub fn normalize_text(contents: &str, size: SizeRecord) -> String {
+pub fn normalize_text(contents: &str, size: Size) -> String {
     normalize_lines(contents.lines().map(str::to_string), size)
 }
 
@@ -44,7 +44,7 @@ pub fn write_latest(path: &Path, contents: &str) -> Result<(), String> {
         .map_err(|error| format!("failed to update Screen `{}`: {error}", path.display()))
 }
 
-fn normalize_lines(lines: impl IntoIterator<Item = String>, size: SizeRecord) -> String {
+fn normalize_lines(lines: impl IntoIterator<Item = String>, size: Size) -> String {
     let rows = usize::from(size.rows);
     let cols = usize::from(size.cols);
     let mut output = Vec::with_capacity(rows);
@@ -86,7 +86,7 @@ mod tests {
 
     #[test]
     fn parses_escape_sequences_to_fixed_plain_text() {
-        let size = SizeRecord { cols: 5, rows: 2 };
+        let size = Size { cols: 5, rows: 2 };
         let mut parser = parser_for(size);
 
         parser.process(b"hello\x1b[2D!!");
@@ -96,14 +96,14 @@ mod tests {
 
     #[test]
     fn normalizes_text_to_exact_dimensions() {
-        let size = SizeRecord { cols: 4, rows: 3 };
+        let size = Size { cols: 4, rows: 3 };
 
         assert_eq!(normalize_text("abcdef\nx", size), "abcd\nx   \n    ");
     }
 
     #[test]
     fn normalizes_wide_text_to_terminal_cell_dimensions() {
-        let size = SizeRecord { cols: 4, rows: 2 };
+        let size = Size { cols: 4, rows: 2 };
 
         assert_eq!(normalize_text("ab表c\n表表x", size), "ab表\n表表");
     }

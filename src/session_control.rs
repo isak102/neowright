@@ -10,19 +10,6 @@ use crate::session_io::SessionIo;
 
 const GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub(crate) trait SessionControl {
-    fn record(&self) -> &SessionRecord;
-    fn eval_lua(&mut self, lua: &str) -> Result<NvimValue, String>;
-    fn exec(&mut self, command: &str) -> Result<String, String>;
-    fn send_keys(&mut self, keys: &str) -> Result<(), String>;
-    fn send_pty_keys(&mut self, keys: &str) -> Result<(), String>;
-    fn capture_snapshot(&self) -> Result<SnapshotCapture, String>;
-    fn ensure_attachable(&self) -> Result<(), String>;
-    fn remote_ui_command(&self) -> Vec<OsString>;
-    fn resize(&mut self, size: Size) -> Result<(), String>;
-    fn close(&mut self, force: bool) -> Result<(), String>;
-}
-
 pub(crate) struct SnapshotCapture {
     pub(crate) contents: String,
     pub(crate) artifact_path: PathBuf,
@@ -66,29 +53,29 @@ impl LiveSessionControl {
     }
 }
 
-impl SessionControl for LiveSessionControl {
-    fn record(&self) -> &SessionRecord {
+impl LiveSessionControl {
+    pub(crate) fn record(&self) -> &SessionRecord {
         &self.record
     }
 
-    fn eval_lua(&mut self, lua: &str) -> Result<NvimValue, String> {
+    pub(crate) fn eval_lua(&mut self, lua: &str) -> Result<NvimValue, String> {
         self.client()?.eval_lua(lua)
     }
 
-    fn exec(&mut self, command: &str) -> Result<String, String> {
+    pub(crate) fn exec(&mut self, command: &str) -> Result<String, String> {
         self.client()?.exec(command)
     }
 
-    fn send_keys(&mut self, keys: &str) -> Result<(), String> {
+    pub(crate) fn send_keys(&mut self, keys: &str) -> Result<(), String> {
         self.client()?.feed_keys(keys)
     }
 
-    fn send_pty_keys(&mut self, keys: &str) -> Result<(), String> {
+    pub(crate) fn send_pty_keys(&mut self, keys: &str) -> Result<(), String> {
         let bytes = translate_pty_keys(keys)?;
         self.io().write_pty_input(&bytes)
     }
 
-    fn capture_snapshot(&self) -> Result<SnapshotCapture, String> {
+    pub(crate) fn capture_snapshot(&self) -> Result<SnapshotCapture, String> {
         let snapshot = self.io().read_settled_screen(self.record.size)?;
         let artifact_path = self.io().write_snapshot_artifact(&snapshot)?;
         Ok(SnapshotCapture {
@@ -97,24 +84,24 @@ impl SessionControl for LiveSessionControl {
         })
     }
 
-    fn ensure_attachable(&self) -> Result<(), String> {
+    pub(crate) fn ensure_attachable(&self) -> Result<(), String> {
         attached_ui::ensure_listen_socket(&self.record)
     }
 
-    fn remote_ui_command(&self) -> Vec<OsString> {
+    pub(crate) fn remote_ui_command(&self) -> Vec<OsString> {
         attached_ui::remote_ui_command(&self.record)
     }
 
-    fn resize(&mut self, size: Size) -> Result<(), String> {
+    pub(crate) fn resize(&mut self, size: Size) -> Result<(), String> {
         self.client()?
             .command(&format!("set columns={} lines={}", size.cols, size.rows))?;
 
-        self.record.size = size.into();
+        self.record.size = size;
         self.registry.update(self.record.clone())?;
         self.io().write_desired_size(self.record.size)
     }
 
-    fn close(&mut self, force: bool) -> Result<(), String> {
+    pub(crate) fn close(&mut self, force: bool) -> Result<(), String> {
         {
             let client = self.client()?;
             if !force {

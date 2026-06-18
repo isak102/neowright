@@ -22,32 +22,11 @@ pub struct SessionRecord {
     pub name: Option<String>,
     pub cwd: PathBuf,
     pub artifact_dir: PathBuf,
-    pub size: SizeRecord,
+    pub size: Size,
     pub supervisor_pid: u32,
     #[serde(default)]
     pub child_pid: Option<u32>,
     pub listen: PathBuf,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SizeRecord {
-    pub cols: u16,
-    pub rows: u16,
-}
-
-impl From<Size> for SizeRecord {
-    fn from(size: Size) -> Self {
-        Self {
-            cols: size.cols,
-            rows: size.rows,
-        }
-    }
-}
-
-impl std::fmt::Display for SizeRecord {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}x{}", self.cols, self.rows)
-    }
 }
 
 pub fn generate_id() -> String {
@@ -336,7 +315,7 @@ mod tests {
             name: name.map(str::to_string),
             cwd: PathBuf::from("/tmp/project"),
             artifact_dir: PathBuf::from("/tmp/project/.neowright"),
-            size: DEFAULT_SIZE.into(),
+            size: DEFAULT_SIZE,
             supervisor_pid,
             child_pid: None,
             listen: PathBuf::from(format!("/tmp/{id}.sock")),

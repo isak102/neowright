@@ -4,7 +4,7 @@ use std::time::Instant;
 use crate::cli::WaitArgs;
 use crate::commands::CommandOutput;
 use crate::output;
-use crate::session_control::{LiveSessionControl, SessionControl};
+use crate::session_control::LiveSessionControl;
 
 pub fn run(args: WaitArgs) -> Result<CommandOutput, String> {
     let mut session = LiveSessionControl::resolve(&args.target)?;
@@ -13,7 +13,7 @@ pub fn run(args: WaitArgs) -> Result<CommandOutput, String> {
 
 fn run_with_control(
     args: WaitArgs,
-    session: &mut impl SessionControl,
+    session: &mut LiveSessionControl,
 ) -> Result<CommandOutput, String> {
     let start = Instant::now();
     loop {

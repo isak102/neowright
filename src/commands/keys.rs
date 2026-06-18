@@ -1,7 +1,7 @@
 use crate::cli::KeysArgs;
 use crate::commands::CommandOutput;
 use crate::output;
-use crate::session_control::{LiveSessionControl, SessionControl};
+use crate::session_control::LiveSessionControl;
 
 pub fn run(args: KeysArgs) -> Result<CommandOutput, String> {
     let mut session = LiveSessionControl::resolve(&args.target)?;
@@ -10,7 +10,7 @@ pub fn run(args: KeysArgs) -> Result<CommandOutput, String> {
 
 fn run_with_control(
     args: KeysArgs,
-    session: &mut impl SessionControl,
+    session: &mut LiveSessionControl,
 ) -> Result<CommandOutput, String> {
     if args.pty {
         session.send_pty_keys(&args.keys)?;

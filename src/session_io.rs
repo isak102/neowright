@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use crate::cli::Size;
 use crate::screen;
-use crate::session::{SessionRecord, SizeRecord};
+use crate::session::SessionRecord;
 
 const SCREEN_SETTLE_TIMEOUT: Duration = Duration::from_secs(1);
 const SCREEN_SETTLE_AGE: Duration = Duration::from_millis(100);
@@ -114,7 +115,7 @@ impl SessionIo {
         screen::write_latest(&self.screen_path(), contents)
     }
 
-    pub(crate) fn read_settled_screen(&self, size: SizeRecord) -> Result<String, String> {
+    pub(crate) fn read_settled_screen(&self, size: Size) -> Result<String, String> {
         let path = self.screen_path();
         let snapshot = read_settled_file(&path)?;
         Ok(screen::normalize_text(&snapshot, size))
@@ -161,13 +162,13 @@ impl SessionIo {
         })
     }
 
-    pub(crate) fn write_desired_size(&self, size: SizeRecord) -> Result<(), String> {
+    pub(crate) fn write_desired_size(&self, size: Size) -> Result<(), String> {
         let contents = serde_json::to_string(&size)
             .map_err(|error| format!("failed to serialize desired Session size: {error}"))?;
         screen::write_latest(&self.desired_size_path(), &contents)
     }
 
-    pub(crate) fn read_desired_size(&self) -> Result<Option<SizeRecord>, String> {
+    pub(crate) fn read_desired_size(&self) -> Result<Option<Size>, String> {
         let path = self.desired_size_path();
         if !path.exists() {
             return Ok(None);
